@@ -1,0 +1,5 @@
+Experiment ID,Research question,Hypothesis,Independent variable,Dependent metrics,Controls,Workload,Status,Raw data path,Analysis path,Conclusion
+C1,How does associativity affect miss rate?,Higher associativity may reduce conflict misses for this trace.,Associativity,Miss rate; AMAT,"Capacity, line size, replacement policy, trace",traceA,Planned,,,
+B1,Which predictor best fits each branch pattern?,Predictor performance depends on branch pattern.,Predictor type,Accuracy; MPKI,Same branch trace and update policy,branch-pattern-suite,Planned,,,
+S1,Can transient execution expose a synthetic secret through cache state?,A measurable cache footprint may remain after squash in the model.,Speculation enabled/disabled,Recovery accuracy; timing distinguishability,Same synthetic victim and cache config,synthetic-victim-01,Planned,,,
+M1,What is the leakage/performance trade-off of mitigations?,Mitigations reduce leakage with differing performance costs.,Mitigation,Leakage metric; IPC overhead,"Same workload, cache and predictor config",synthetic-victim-01,Planned,,,

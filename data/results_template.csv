@@ -1,0 +1,2 @@
+experiment_id,timestamp_utc,git_commit,workload_id,workload_hash,seed,trial,status,cache_capacity_bytes,line_size_bytes,associativity,replacement,accesses,hits,misses,hit_rate,miss_rate,writebacks,amat_cycles,predictor,branches,correct_predictions,mispredictions,accuracy,mpki,committed_instructions,total_cycles,cpi,ipc,squashed_instructions,recovery_cycles,mitigation,recovery_accuracy,performance_overhead_pct,leakage_metric_name,leakage_metric_value
+,,,,,,,planned,,,,,,,,,,,,,,,,,,,,,,,,,,,
