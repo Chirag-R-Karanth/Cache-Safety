@@ -3,6 +3,12 @@
 **Project:** Interactive Microarchitectural Performance and Security Analysis Platform  
 **Scope:** Cache hierarchy and controller, branch prediction, pipelining, speculative execution, Spectre V1 (synthetic model), mitigations, experimental analysis and visualisation.
 
+> **Project status:** planning/scaffolding. This repository currently contains specifications, templates and starter experiment data. It is not yet an executable simulator.
+
+## Start here
+
+Follow [howto.md](howto.md) for the onboarding sequence. The main project plan is [docs/ROADMAP.md](docs/ROADMAP.md).
+
 ## What this kit contains
 
 - `docs/ROADMAP.md` — week-by-week implementation plan and exit criteria.
@@ -29,7 +35,8 @@
 6. Validate each model against hand-worked cases or an independent reference.
 7. Treat Spectre as a controlled synthetic demonstration. Do not target real machines, processes or secrets.
 8. Clearly label model assumptions. A simplified simulator does not establish real-CPU security guarantees.
+9. Preserve every completed run and its metadata. Never reuse an output path for a different run.
 
 ## Recommended first action
 
-Read `docs/WHAT_TO_UNDERSTAND.md`, then complete Week 1 in `docs/ROADMAP.md`. Do not start implementing Spectre first.
+Read [docs/WHAT_TO_UNDERSTAND.md](docs/WHAT_TO_UNDERSTAND.md), then complete Week 1 in [docs/ROADMAP.md](docs/ROADMAP.md). Do not start implementing Spectre first.
