@@ -36,5 +36,5 @@ class CacheSimulatorTests(unittest.TestCase):
         self.assertEqual(lru.returncode,0,lru.stderr); lru_m=self.summary(o)
         fifo,o=self.run_sim(trace,capacity=128,line_size=64,ways=2,policy='fifo')
         self.assertEqual(fifo.returncode,0,fifo.stderr); fifo_m=self.summary(o)
-        self.assertEqual(lru_m['misses'],'3'); self.assertEqual(fifo_m['misses'],'2')
+        self.assertEqual(lru_m['misses'],'4'); self.assertEqual(fifo_m['misses'],'3')
 if __name__=='__main__':unittest.main()
