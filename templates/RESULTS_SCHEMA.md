@@ -1,6 +1,6 @@
 # Results and Metadata Schema
 
-This document defines the minimum record for a completed simulator run. Keep one record per **experiment × configuration × workload × trial**. Store detailed cycle/event records separately as JSONL. Treat completed raw outputs as immutable.
+This document defines the minimum record for a completed simulator run. Keep one record per **experiment × configuration × workload × trial**. Store detailed cycle/event records separately as JSONL. Treat completed raw outputs as immutable. The field names below match `data/results_template.csv`.
 
 ## Required run metadata
 
@@ -15,29 +15,40 @@ This document defines the minimum record for a completed simulator run. Keep one
 | `workload_hash` | string | yes | SHA-256 of the exact workload input. |
 | `seed` | integer or null | yes | Seed; null only when the run is deterministic and no RNG is used. |
 | `trial` | integer | yes | 1-based trial number. |
-| `config_json` | object or path | yes | Complete immutable configuration or path to it. |
+| `config_json` | string | yes | Path to the immutable complete configuration file (also record its hash in the run manifest). |
 | `status` | enum | yes | `success`, `failed`, or `invalid`. |
 | `runtime_ms` | number or null | yes | Host wall-clock runtime, not simulated CPU cycles. |
 | `event_trace_path` | string or null | yes | JSONL event trace path, or null when event tracing is disabled. |
+| `metric_definition_version` | string | yes | Version of the metric definitions used by this run. |
+
+## Configuration summary fields
+
+These columns are convenience fields for filtering. The immutable `config_json` is authoritative.
+
+- `cache_capacity_bytes`, `line_size_bytes`, `associativity`: positive integer cache parameters.
+- `replacement`: replacement-policy identifier (for example, `LRU` or `FIFO`).
+- `write_policy`: write policy identifier (for example, `write_back` or `write_through`).
+- `allocation_policy`: allocation policy identifier (for example, `write_allocate` or `no_write_allocate`).
+- `predictor_type`: predictor identifier. Use null when branch prediction is not part of the run.
 
 ## Cache metrics
 
-- `accesses`, `hits`, `misses`: non-negative integer counts.
-- `hit_rate`, `miss_rate`: fractions in [0, 1], calculated from counts.
-- `writebacks`: non-negative integer count of dirty evictions written to the next level.
+- `cache_accesses`, `cache_hits`, `cache_misses`: non-negative integer counts.
+- `cache_hit_rate`, `cache_miss_rate`: fractions in [0, 1], calculated from counts.
+- `cache_writebacks`: non-negative integer count of dirty evictions written to the next level.
 - `l1_misses`, `l2_misses`: non-negative integer counts; state whether L2 misses are conditional on an L1 miss.
 - `amat_cycles`: numeric average memory access time in simulated cycles; document the hierarchy formula.
 
 Required invariants when cache metrics are applicable:
-- `accesses = hits + misses`.
-- `hit_rate = hits / accesses` and `miss_rate = misses / accesses` when accesses > 0.
+- `cache_accesses = cache_hits + cache_misses`.
+- `cache_hit_rate = cache_hits / cache_accesses` and `cache_miss_rate = cache_misses / cache_accesses` when accesses > 0.
 - Rates are null, not zero, when the denominator is zero.
 
 ## Branch metrics
 
 - `branches`, `correct_predictions`, `mispredictions`: non-negative integer counts.
-- `accuracy`: fraction in [0, 1]; null when no predictions were made.
-- `mpki`: mispredictions per 1,000 committed instructions; null when the denominator is zero.
+- `predictor_accuracy`: fraction in [0, 1]; null when no predictions were made.
+- `branch_mpki`: mispredictions per 1,000 committed instructions; null when the denominator is zero.
 - `predictor_storage_bits`: non-negative integer count, including only structures stated in the model.
 
 Required invariant: `branches = correct_predictions + mispredictions` when every branch is predicted exactly once.
