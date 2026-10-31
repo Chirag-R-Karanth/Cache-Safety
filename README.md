@@ -40,3 +40,14 @@ Follow [howto.md](howto.md) for the onboarding sequence. The main project plan i
 ## Recommended first action
 
 Read [docs/WHAT_TO_UNDERSTAND.md](docs/WHAT_TO_UNDERSTAND.md), then complete Week 1 in [docs/ROADMAP.md](docs/ROADMAP.md). Do not start implementing Spectre first.
+
+
+## Parameter sweep
+
+Compare 1-, 2- and 4-way caches under both LRU and FIFO using the identical trace:
+
+```bash
+python3 scripts/run_sweep.py --binary ./cache_sim --trace traces/locality_demo.trace --out-dir results/sweep --capacity 256 --line-size 64
+```
+
+This writes per-configuration raw CSVs, `comparison.csv`, and `hit-rate-comparison.svg`.
