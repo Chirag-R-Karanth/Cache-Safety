@@ -65,10 +65,44 @@ Control decisions (Phase 3, on top of Phase 2's hazard rules):
 
 ## L1 data cache (Phase 4)
 
-- Set-associative, configurable ways/line size/replacement (LRU/PLRU).
-- Fills occur at speculatively-issued load time (by design — this is the
-  property Spectre exfiltrates); mitigation `FILL_ON_COMMIT` moves fills to
-  commit point.
+`rtl/cache/l1_dcache.sv` sits between the pipeline's mem stage and the
+external data bus; `mem_stage.sv` now only shapes requests (store lane
+replication, squash store-gate) and extracts load bytes from the cache
+response.
+
+- **Geometry (default):** 16 sets × 2 ways × 16-byte lines (4 words) →
+  offset `addr[3:0]`, set `addr[7:4]`, tag `addr[31:8]`. `POLICY`
+  selects the replacement module: `0` = exact LRU
+  (`replacement_lru.sv`, per-set move-to-front stack), `1` = tree-PLRU
+  (`replacement_plru.sv`, (WAYS−1)-bit heap tree per set).
+- **Write policy:** write-through, no-write-allocate. Stores always
+  write memory (the ISS-visible image, the TB magic signature and any
+  bus observer stay coherent) and byte-merge into the line only when it
+  is already present; a store miss goes straight to memory without
+  allocating. Loads fill a whole line on miss.
+- **FSM:** `S_IDLE → {S_RESP (hit), S_WT (store), S_FILL (miss)}`.
+  A hit latches `rsp_rdata` and answers in one cycle; a fill streams
+  the 4 line words from memory (1-wait-state slave: ~2 cycles/word),
+  then re-serves the request from `S_IDLE` (now a hit). `rsp_ready` is
+  a one-cycle completion pulse the mem stage turns into `mem_done`.
+- **Speculative fill (the Phase 5 primitive):** line identity
+  (base/set/tag/way) is **latched at fill start**. Once `S_FILL` is
+  entered the FSM runs to completion even if `req_valid` drops — which
+  is exactly what happens when the requesting load is squashed
+  mid-fill (the late-resolve flush clears EX/MEM, the pipeline
+  continues, the fill finishes). The squashed instruction's data return
+  is discarded (MEM/WB was cleared), but the line is left **valid** —
+  a timing-visible side effect of a wrong-path load. The squash-cycle
+  load is always in its *first* MEM cycle (in-order age argument), so
+  gating stores there never blocks an older in-flight fill.
+- **Replacement updates** fire on every served hit and on fill
+  completion, always with the *latched* fill set/way (the live request
+  address may already belong to a different instruction after a squash).
+- **Invalidate port** (`inval_valid`, `inval_addr`): drops the line
+  containing the address (tag compare, all ways); applied last in the
+  state update so it wins over a same-cycle valid-set. Used by the
+  Phase 5 Flush+Reload probe. `tb_core` wires it to static 0 regs that
+  tests can poke.
 
 ## Mitigations (Phase 7, toggleable parameters)
 
