@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-10
 **Branch:** `feat/cache-simulator` → `develop`
-**PR:** _filled in after creation_
+**PR:** https://github.com/Chirag-R-Karanth/Cache-Safety/pull/13 (squash-merged)
 **Tag:** `v0.1-cache-sim`
 **Depends on:** Phase 0 (PR #12)
 
