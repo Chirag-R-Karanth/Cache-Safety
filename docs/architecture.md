@@ -1,7 +1,8 @@
 # Architecture
 
-> Status: **Phase 0 baseline.** Pipeline/cache diagrams are completed in
-> Phase 2+; see [build reports](build-reports/) for incremental updates.
+> Status: **Phase 2 — baseline 5-stage pipeline complete.** Phase 3 adds the
+> BHT/BTB predictor on top of this structure; see [build reports](build-reports/)
+> for incremental updates.
 
 ## Overview
 
@@ -31,15 +32,27 @@ program (`tb/unit/tb_picorv32.sv`).
 
 ### Stage mapping (PicoRV32 FSM → 5-stage pipeline)
 
-_Filled in during Phase 2:_
-
 | Pipeline stage | PicoRV32 FSM state(s) | Notes |
 |---|---|---|
-| Fetch | `mem_state` fetch / `reg_prefetched` | becomes predicted-PC fetch in Phase 3 |
-| Decode | decoder `case (instr)` | reused nearly as-is |
-| Execute | `alu_*`, `pcpi` | + branch resolve in Phase 3 |
-| Memory | `mem_state` load/store | + L1 dcache in Phase 4 |
-| Writeback | `reg_*` write | + scoreboard release |
+| Fetch | `mem_state` fetch / `reg_prefetched` | `rtl/core/fetch.sv`: predicted-PC fetch, valid/ready issue handshake, skid register for 1-wait-state responses; redirect/flush on EX taken branch |
+| Decode | decoder `case (instr)` | `decode_comb.sv` (pure decode) + `decode.sv` (ID/EX register, regfile read, flush/hold/load-use-bubble control); forwarding operands captured at ID/EX |
+| Execute | `alu_*`, `pcpi` | `execute.sv`: full EX/MEM→EX and MEM/WB→EX forwarding, ALU, branch/jump resolve in EX with flush of younger stages, CSR request |
+| Memory | `mem_state` load/store | `mem_stage.sv`: data-bus master (valid/ready), byte lanes, 1-wait-state slave in TB; MEM busy freezes EX/ID/IF (`hold`) |
+| Writeback | `reg_*` write | `writeback.sv`: WB mux (ALU/MEM/PC+4/CSR) → regfile write-first port; `csr.sv` cycle/instret counters tick once per retired instruction |
+
+Baseline control decisions (Phase 2):
+
+- Branch prediction: predict-not-taken; resolve in EX, redirect + flush of
+  fetch/decode/EX-younger stages (Phase 3 replaces this with BHT/BTB).
+- 1-cycle load-use interlock (`load_use` holds IF/ID until the load leaves EX);
+  `mem_busy` additionally blocks ID advance so a consumer never enters EX while
+  its producer-load is still in MEM.
+- Data memory: registered 1-wait-state slave (picorv32-style); during `hold`
+  the WB slot keeps its content so WB→EX forwarding into the frozen EX stage
+  still works (regfile re-write is idempotent; `csr.retire` is gated to the
+  first cycle of each WB residency).
+- Magic signature: word store to `0xFFFF0000` publishes a test result
+  (`tb/integration/tb_core.sv`), the same convention `tests/start.S` uses.
 
 ## Branch prediction (Phase 3)
 

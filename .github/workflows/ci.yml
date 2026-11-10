@@ -34,6 +34,30 @@ jobs:
           path: "*.vcd"
           if-no-files-found: ignore
 
+  riscv-tests:
+    name: RV32I core test suite (Icarus + toolchain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: Cache RISC-V toolchain
+        id: tc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/riscv-tc
+          key: riscv-tc-xpack-15.2.0-1-linux-x64
+      - name: Install xpack RISC-V toolchain
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o /tmp/riscv-tc.tar.gz \
+            https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v15.2.0-1/xpack-riscv-none-elf-gcc-15.2.0-1-linux-x64.tar.gz
+          mkdir -p "$HOME/riscv-tc"
+          tar -xzf /tmp/riscv-tc.tar.gz -C "$HOME/riscv-tc" --strip-components=1
+          rm /tmp/riscv-tc.tar.gz
+      - name: Run RV32I test suite (directed + randomized vs ISS)
+        run: RISCV_TC="$HOME/riscv-tc" RANDOM_SEEDS=20 ./tests/run_riscv_tests.sh
+
   lint-python:
     name: Python lint
     runs-on: ubuntu-latest
@@ -41,4 +65,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax-check Python sources
         run: |
-          python3 -m py_compile sim/tests/test_cache.py scripts/run_sweep.py scripts/analyse.py
+          python3 -m py_compile sim/tests/test_cache.py scripts/run_sweep.py scripts/analyse.py \
+            tests/asm/iss.py tests/asm/gen_random.py tests/bin2hex.py
