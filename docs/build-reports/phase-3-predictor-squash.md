@@ -2,7 +2,8 @@
 
 **Date:** 2026-11-10
 **Branch:** `feat/bht-predictor` → `develop`
-**Tag:** `v0.3-predictor` (after merge/promote)
+**PR:** https://github.com/Chirag-R-Karanth/Cache-Safety/pull/15 (squash-merged)
+**Tag:** `v0.3-predictor`
 **Depends on:** Phase 2 (PR #14, tag `v0.2-core-pipeline`)
 
 ## Goals (from spec §5, Phase 3 + deliverable 2)
