@@ -1,53 +1,78 @@
-# MicroTrace — Project Starter Kit
+# Cache-Safety — Hardware Spectre/Meltdown Demonstration on FPGA
 
-**Project:** Interactive Microarchitectural Performance and Security Analysis Platform  
-**Scope:** Cache hierarchy and controller, branch prediction, pipelining, speculative execution, Spectre V1 (synthetic model), mitigations, experimental analysis and visualisation.
+Cycle-accurate cache simulator + speculative RV32I core (SystemVerilog) that
+demonstrates **Spectre v1** and a **Meltdown-style** transient-execution
+attack with toggleable hardware mitigations, visualized on a real-time
+dashboard. Target: PYNQ-Z1/Z2 (Zynq-7000).
 
-> **Project status:** planning/scaffolding. This repository currently contains specifications, templates and starter experiment data. It is not yet an executable simulator.
+> Educational project. See [docs/threat-model.md](docs/threat-model.md) for
+> exactly what is and is not demonstrated. Do not target real machines or
+> real secrets.
 
-## Start here
+## Repository layout
 
-Follow [howto.md](howto.md) for the onboarding sequence. The main project plan is [docs/ROADMAP.md](docs/ROADMAP.md).
-
-## What this kit contains
-
-- `docs/ROADMAP.md` — week-by-week implementation plan and exit criteria.
-- `docs/WHAT_TO_UNDERSTAND.md` — concepts to learn, in dependency order.
-- `docs/ANALYSIS_PLAYBOOK.md` — how to design, run, analyse and explain experiments.
-- `docs/ARCHITECTURE_SPEC.md` — recommended system boundaries and data flow.
-- `docs/VISUALISATION_SPEC.md` — dashboard pages, charts and interaction requirements.
-- `docs/REPORT_OUTLINE.md` — final report structure and what each section must prove.
-- `templates/TODO.md` — task checklist.
-- `templates/EXPERIMENT_PLAN.md` — reusable experiment planning sheet.
-- `templates/RESULTS_SCHEMA.md` — required fields for reproducible results.
-- `templates/DECISION_LOG.md` — record important design decisions.
-- `prompts/AI_PROMPTS.md` — prompts for using an AI assistant without outsourcing understanding.
-- `data/experiment_register.csv` — experiment register starter.
-- `data/results_template.csv` — long-format results template.
-
-## Non-negotiable engineering rules
-
-1. Build a correct software reference model before RTL.
-2. Keep simulation, experiment orchestration, analysis and visualisation separate.
-3. Every plotted result must be generated from saved raw data.
-4. Every experiment must record its configuration, workload, seed, software version and metric definitions.
-5. Never compare two configurations while silently changing multiple variables.
-6. Validate each model against hand-worked cases or an independent reference.
-7. Treat Spectre as a controlled synthetic demonstration. Do not target real machines, processes or secrets.
-8. Clearly label model assumptions. A simplified simulator does not establish real-CPU security guarantees.
-9. Preserve every completed run and its metadata. Never reuse an output path for a different run.
-
-## Recommended first action
-
-Read [docs/WHAT_TO_UNDERSTAND.md](docs/WHAT_TO_UNDERSTAND.md), then complete Week 1 in [docs/ROADMAP.md](docs/ROADMAP.md). Do not start implementing Spectre first.
-
-
-## Parameter sweep
-
-Compare 1-, 2- and 4-way caches under both LRU and FIFO using the identical trace:
-
-```bash
-python3 scripts/run_sweep.py --binary ./cache_sim --trace traces/locality_demo.trace --out-dir results/sweep --capacity 256 --line-size 64
+```
+sim/         Software cache simulator (design exploration, sweeps, AMAT)
+rtl/         SystemVerilog: core (PicoRV32 fork), predictor, cache, mitigations, SoC top
+attacks/     Spectre v1 + Meltdown victim/attacker source
+tb/          Testbenches: unit, integration, attack
+fpga/        PYNQ constraints, Vivado block design, build scripts
+host/        PYNQ overlay control + Streamlit/Plotly dashboard
+scripts/     Run/lint/build helper scripts
+docs/        Architecture, threat model, results, build reports, spec
 ```
 
-This writes per-configuration raw CSVs, `comparison.csv`, and `hit-rate-comparison.svg`.
+## Quick start
+
+### Software cache simulator
+
+```bash
+make sim build cache_sim from sim/src/cache.cpp
+make test-sim        # unit tests (Python unittest/pytest-compatible)
+./cache_sim --trace sim/traces/locality_demo.trace --out /tmp/run \
+    --capacity 256 --line-size 64 --ways 2 --policy lru
+python3 scripts/run_sweep.py --binary ./cache_sim   # design-space sweep + chart
+```
+
+### RTL smoke test (Icarus Verilog)
+
+```bash
+make test-rtl        # compiles forked PicoRV32 + self-checking testbench
+make waves           # same + VCD dump for GTKWave
+```
+
+### Full test suite
+
+```bash
+make test            # cache sim + RTL smoke
+```
+
+## Toolchain
+
+| Tool | Use |
+|---|---|
+| g++ (C++17) | cache simulator |
+| Python 3.10+ | tests, sweeps, dashboard (`pip install -r requirements.txt`) |
+| Icarus Verilog 11+ / GTKWave | RTL simulation & debug |
+| Verilator | CI lint (GitHub Actions) |
+| RISC-V GNU toolchain | compiling victim/attacker C (Phase 5+) |
+| Xilinx Vivado | PYNQ bitstream (Phase 8) |
+| PYNQ Python API | host-side overlay control |
+
+## Documentation
+
+- [Project specification](docs/SPEC.md) — full master prompt / plan
+- [Threat model](docs/threat-model.md)
+- [Architecture](docs/architecture.md) — pipeline, cache org, diagrams
+- [Results](docs/results.md) — analytics & interpretation
+- [Build reports](docs/build-reports/) — per-phase status, tests, PR links
+
+## Workflow
+
+`main` (always green) ← `develop` ← feature branches. One PR per phase,
+squash-merged after tests pass; phase tags `v0.1-cache-sim` … `v1.0-final`.
+
+## License
+
+MIT — see [LICENSE](LICENSE). PicoRV32 fork retains its own license
+([rtl/core/picorv32/COPYING](rtl/core/picorv32/COPYING)).

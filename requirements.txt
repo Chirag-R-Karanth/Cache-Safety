@@ -1,0 +1,7 @@
+# Runtime deps for sim sweeps + dashboard (Phase 8)
+numpy>=1.26
+pandas>=2.0
+matplotlib>=3.8
+plotly>=5.18
+streamlit>=1.30
+pytest>=8.0

@@ -6,7 +6,7 @@ class CacheSimulatorTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp=pathlib.Path(tempfile.mkdtemp(prefix='microtrace-tests-'))
         cls.bin=cls.tmp/'cache_sim'
-        subprocess.run(['g++','-std=c++17','-O2','-Wall','-Wextra','-Wpedantic',str(ROOT/'src/cache_sim.cpp'),'-o',str(cls.bin)],check=True)
+        subprocess.run(['g++','-std=c++17','-O2','-Wall','-Wextra','-Wpedantic',str(ROOT/'src/cache.cpp'),'-o',str(cls.bin)],check=True)
     def run_sim(self, trace, **opts):
         trace_path=self.tmp/'case.trace'; trace_path.write_text(trace)
         prefix=self.tmp/'out'
