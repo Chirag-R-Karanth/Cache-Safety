@@ -2,11 +2,12 @@
 
 **Date:** 2026-11-10
 **Branch:** `feat/l1-dcache` → `develop`
-**PR:** (filled after opening)
+**PR:** https://github.com/Chirag-R-Karanth/Cache-Safety/pull/16 (squash-merged, `28b9778`)
 **Tag:** `v0.4-l1-dcache` (deviation: SPEC §test-matrix lists
 `v0.4-spectre-poc` for what is actually Phase 5; tags follow phase order —
 noted here and in the PR)
 **Depends on:** Phase 3 (PR #15, tag `v0.3-predictor`)
+**Issue:** #7 (closed)
 
 ## Goals (from spec §5, Phase 4)
 
