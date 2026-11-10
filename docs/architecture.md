@@ -1,7 +1,7 @@
 # Architecture
 
-> Status: **Phase 2 — baseline 5-stage pipeline complete.** Phase 3 adds the
-> BHT/BTB predictor on top of this structure; see [build reports](build-reports/)
+> Status: **Phase 3 — BHT/BTB predictor + late-resolving branch squash
+> complete.** Phase 4 adds the L1 data cache; see [build reports](build-reports/)
 > for incremental updates.
 
 ## Overview
@@ -34,31 +34,34 @@ program (`tb/unit/tb_picorv32.sv`).
 
 | Pipeline stage | PicoRV32 FSM state(s) | Notes |
 |---|---|---|
-| Fetch | `mem_state` fetch / `reg_prefetched` | `rtl/core/fetch.sv`: predicted-PC fetch, valid/ready issue handshake, skid register for 1-wait-state responses; redirect/flush on EX taken branch |
-| Decode | decoder `case (instr)` | `decode_comb.sv` (pure decode) + `decode.sv` (ID/EX register, regfile read, flush/hold/load-use-bubble control); forwarding operands captured at ID/EX |
-| Execute | `alu_*`, `pcpi` | `execute.sv`: full EX/MEM→EX and MEM/WB→EX forwarding, ALU, branch/jump resolve in EX with flush of younger stages, CSR request |
-| Memory | `mem_state` load/store | `mem_stage.sv`: data-bus master (valid/ready), byte lanes, 1-wait-state slave in TB; MEM busy freezes EX/ID/IF (`hold`) |
-| Writeback | `reg_*` write | `writeback.sv`: WB mux (ALU/MEM/PC+4/CSR) → regfile write-first port; `csr.sv` cycle/instret counters tick once per retired instruction |
+| Fetch | `mem_state` fetch / `reg_prefetched` | `rtl/core/fetch.sv`: predict-and-continue fetch — BHT/BTB queried per fetched instruction (`bht_2bit.sv`, `btb.sv` under `rtl/predictor/`), prediction carried in IF/ID; valid/ready issue handshake, skid register for 1-wait-state responses; redirect/flush on late-resolve squash |
+| Decode | decoder `case (instr)` | `decode_comb.sv` (pure decode) + `decode.sv` (ID/EX register, regfile read, flush/hold/load-use-bubble control); forwarding operands and prediction bits captured at ID/EX |
+| Execute | `alu_*`, `pcpi` | `execute.sv`: full EX/MEM→EX and MEM/WB→EX forwarding, ALU, branch/jump condition resolve in EX (no immediate redirect); emits a resolve record to the scoreboard + BHT/BTB training; CSR request |
+| Memory | `mem_state` load/store | `mem_stage.sv`: data-bus master (valid/ready), byte lanes, 1-wait-state slave in TB; MEM busy freezes EX/ID/IF (`hold`); on squash a wrong-path store's transaction is suppressed while speculative loads pass through |
+| Writeback | `reg_*` write | `writeback.sv`: WB mux (ALU/MEM/PC+4/CSR) → regfile write-first port; `csr.sv` cycle/instret counters tick once per retired instruction; the mispredicting branch retires here, at which point the scoreboard fires the squash |
 
-Baseline control decisions (Phase 2):
+Control decisions (Phase 3, on top of Phase 2's hazard rules):
 
-- Branch prediction: predict-not-taken; resolve in EX, redirect + flush of
-  fetch/decode/EX-younger stages (Phase 3 replaces this with BHT/BTB).
-- 1-cycle load-use interlock (`load_use` holds IF/ID until the load leaves EX);
-  `mem_busy` additionally blocks ID advance so a consumer never enters EX while
-  its producer-load is still in MEM.
-- Data memory: registered 1-wait-state slave (picorv32-style); during `hold`
-  the WB slot keeps its content so WB→EX forwarding into the frozen EX stage
-  still works (regfile re-write is idempotent; `csr.retire` is gated to the
-  first cycle of each WB residency).
+- Branch prediction: 2-bit saturating BHT (256 entries, PC[9:2], weakly
+  not-taken reset) + direct-mapped tagged BTB (64 entries, cond flag).
+  Fetch continues on the predicted path; prediction bits ride IF/ID → ID/EX.
+- **Late-resolving branch**: condition compares in EX, but the squash is
+  deferred to the branch's WB cycle by `rtl/core/scoreboard.sv` (2-entry
+  record queue: EX→MEM→WB is gapless because a branch never stalls in MEM).
+  Younger instructions keep executing during the window — a distance-1
+  speculative load reaches MEM (cache fill) on the squash cycle itself.
+- Squash recovery: `squash` pulses from the scoreboard = pipeline-wide
+  flush (fetch redirect + IF/ID, ID/EX, EX/MEM, MEM/WB cleared with priority
+  over `hold`); `block_commit` (asserted from EX resolve through WB squash)
+  gates wrong-path `csr_fire`, `trap_valid` and BHT/BTB training.
+- Wrong-path stores never commit (`d_valid` gated for stores on the squash
+  cycle — the wrong-path store is always in its first MEM cycle there);
+  speculative loads are deliberately *not* gated (Spectre side channel).
+- 1-cycle load-use interlock; full EX/MEM/WB forwarding; registered
+  1-wait-state D-side slave (Phase 2 rules unchanged).
 - Magic signature: word store to `0xFFFF0000` publishes a test result
-  (`tb/integration/tb_core.sv`), the same convention `tests/start.S` uses.
-
-## Branch prediction (Phase 3)
-
-- 2-bit saturating-counter BHT, indexed by PC bits; BTB for target.
-- Predict-and-continue fetch; branch resolves in Execute; mispredict →
-  squash younger in-flight instructions and refetch correct path.
+  (`tb/integration/tb_core.sv`); the TB also prints a
+  `STAT branches=… mispredicts=… rate=…%` line at the end of every run.
 
 ## L1 data cache (Phase 4)
 

@@ -70,6 +70,8 @@ module decode (
 			idex.rs1_val    <= rv1;
 			idex.rs2_val    <= rv2;
 			idex.imm        <= imm;
+			idex.pred_taken <= ifid.pred_taken;
+			idex.pred_target<= ifid.pred_target;
 			idex.c          <= c;
 		end
 	end

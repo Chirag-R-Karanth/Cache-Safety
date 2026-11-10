@@ -1,7 +1,10 @@
 // core5: 5-stage in-order RV32I pipeline (fetch, decode, execute, mem, wb).
-// Baseline control: predict-not-taken branches resolved in EX with flush of
-// younger stages; 1-cycle load-use interlock; full EX/MEM/WB forwarding.
-// Phase 3 adds the BHT/BTB predictor + scoreboard on top of this structure.
+//
+// Phase 3 control: BHT/BTB predict-and-continue fetch; branches resolve in
+// EX but the scoreboard defers misprediction squash/redirect until the
+// branch reaches WB ("late-resolving branch"), so younger instructions —
+// including a speculative load at distance 1 — execute before recovery.
+// 1-cycle load-use interlock; full EX/MEM/WB forwarding.
 //
 // Stage modules own their pipeline registers; this top level contains the
 // hazard unit and wiring. Instruction decode derives from the PicoRV32 fork.
@@ -36,6 +39,28 @@ module core5 (
 	logic [4:0] haz_rs1, haz_rs2;
 	logic haz_uses_rs1, haz_uses_rs2;
 
+	// ---- late-resolve squash (scoreboard) ----
+	logic squash, block_commit, speculating;
+	logic [31:0] squash_target;
+	logic resolve_valid, resolve_mispredict;
+	logic [31:0] resolve_target;
+	logic train_bht_valid, train_btb_valid, train_taken, train_cond;
+	logic [31:0] train_pc, train_target;
+
+	scoreboard u_scoreboard (
+		.clk(clk), .rstn(rstn),
+		.resolve_mispredict(resolve_mispredict),
+		.resolve_target(resolve_target),
+		.squash(squash),
+		.squash_target(squash_target),
+		.block_commit(block_commit),
+		.speculating(speculating)
+	);
+
+	// squash is the pipeline-wide redirect/flush
+	assign redirect = squash;
+	assign redirect_pc = squash_target;
+
 	// ---- hazard unit ----
 	assign load_use = idex.valid && idex.c.is_load && idex.c.wb_en &&
 	                  idex.rd != 5'd0 && ifid.valid &&
@@ -52,6 +77,12 @@ module core5 (
 		.consume(take),
 		.flush(redirect),
 		.redirect_pc(redirect_pc),
+		.train_bht_valid(train_bht_valid),
+		.train_btb_valid(train_btb_valid),
+		.train_pc(train_pc),
+		.train_taken(train_taken),
+		.train_target(train_target),
+		.train_cond(train_cond),
 		.i_valid(i_valid), .i_addr(i_addr),
 		.i_ready(i_ready), .i_rdata(i_rdata),
 		.ifid(ifid)
@@ -105,18 +136,29 @@ module core5 (
 	execute u_execute (
 		.clk(clk), .rstn(rstn),
 		.hold(mem_busy),
+		.squash(squash),
+		.block_commit(block_commit),
 		.idex(idex),
 		.memwb(memwb),
 		.exmem(exmem),
 		.csr_req(csr_req), .csr_addr(csr_addr), .csr_op(csr_op),
 		.csr_wdata(csr_wdata), .csr_rdata(csr_rdata), .csr_fire(csr_fire),
-		.redirect_valid(redirect), .redirect_target(redirect_pc),
+		.resolve_valid(resolve_valid),
+		.resolve_mispredict(resolve_mispredict),
+		.resolve_target(resolve_target),
+		.train_bht_valid(train_bht_valid),
+		.train_btb_valid(train_btb_valid),
+		.train_pc(train_pc),
+		.train_taken(train_taken),
+		.train_target(train_target),
+		.train_cond(train_cond),
 		.trap_valid(trap)
 	);
 
 	mem_stage u_mem (
 		.clk(clk), .rstn(rstn),
 		.exmem(exmem),
+		.squash(squash),
 		.hold(mem_busy),
 		.d_valid(d_valid), .d_addr(d_addr),
 		.d_wdata(d_wdata), .d_wstrb(d_wstrb),
