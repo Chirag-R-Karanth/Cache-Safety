@@ -9,7 +9,6 @@ dist/
 *.vcd
 *.fst
 *.log
-sim/results/demo/
 sim/results/sweep/*_accesses.csv
 sim/results/sweep/*_summary.csv
 

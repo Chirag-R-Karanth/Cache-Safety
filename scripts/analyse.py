@@ -10,15 +10,15 @@ def read_metrics(path):
 def read_accesses(path):
     with open(path,newline='') as f: return list(csv.DictReader(f))
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--summary',required=True);p.add_argument('--accesses',required=True);p.add_argument('--out-dir',default='results');a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--summary',required=True);p.add_argument('--accesses',required=True);p.add_argument('--out-dir',default='sim/results/demo');a=p.parse_args()
     out=pathlib.Path(a.out_dir);out.mkdir(parents=True,exist_ok=True);m=read_metrics(a.summary);rows=read_accesses(a.accesses)
     hits=[int(r['hit']) for r in rows]; misses=[1-x for x in hits]; x=list(range(1,len(rows)+1))
     cumulative=[sum(hits[:i])/i*100 for i in x]
-    fig,ax=plt.subplots(figsize=(9,4.8));ax.plot(x,cumulative,marker='o',markersize=3);ax.set(xlabel='Memory access number',ylabel='Cumulative hit rate (%)',title='Cache hit rate as the trace executes');ax.set_ylim(0,100);ax.grid(True,alpha=.25);fig.tight_layout();fig.savefig(out/'hit-rate.svg');plt.close(fig)
-    fig,ax=plt.subplots(figsize=(9,4.8));ax.bar(x,hits,label='Hit');ax.bar(x,misses,bottom=hits,label='Miss');ax.set(xlabel='Memory access number',ylabel='Outcome',title='Per-access cache outcome');ax.set_yticks([0,1],['Miss','Hit']);ax.legend();ax.grid(axis='y',alpha=.2);fig.tight_layout();fig.savefig(out/'access-outcomes.svg');plt.close(fig)
+    fig,ax=plt.subplots(figsize=(9,4.8));ax.plot(x,cumulative,marker='o',markersize=3);ax.set(xlabel='Memory access number',ylabel='Cumulative hit rate (%)',title='Cache hit rate as the trace executes');ax.set_ylim(0,100);ax.grid(True,alpha=.25);fig.tight_layout();fig.savefig(out/'hit-rate.svg', metadata={'Date': None});plt.close(fig)
+    fig,ax=plt.subplots(figsize=(9,4.8));ax.bar(x,hits,label='Hit');ax.bar(x,misses,bottom=hits,label='Miss');ax.set(xlabel='Memory access number',ylabel='Outcome',title='Per-access cache outcome');ax.set_yticks([0,1],['Miss','Hit']);ax.legend();ax.grid(axis='y',alpha=.2);fig.tight_layout();fig.savefig(out/'access-outcomes.svg', metadata={'Date': None});plt.close(fig)
     set_counts={}
     for r in rows: set_counts[r['set']]=set_counts.get(r['set'],0)+1
-    fig,ax=plt.subplots(figsize=(7,4));keys=sorted(set_counts,key=lambda z:int(z));ax.bar(keys,[set_counts[k] for k in keys]);ax.set(xlabel='Cache set index',ylabel='Accesses mapped to set',title='Address pressure by cache set');ax.grid(axis='y',alpha=.2);fig.tight_layout();fig.savefig(out/'set-pressure.svg');plt.close(fig)
+    fig,ax=plt.subplots(figsize=(7,4));keys=sorted(set_counts,key=lambda z:int(z));ax.bar(keys,[set_counts[k] for k in keys]);ax.set(xlabel='Cache set index',ylabel='Accesses mapped to set',title='Address pressure by cache set');ax.grid(axis='y',alpha=.2);fig.tight_layout();fig.savefig(out/'set-pressure.svg', metadata={'Date': None});plt.close(fig)
     pct=lambda key: f"{float(m[key])*100:.1f}%"
     metric_rows=''.join(f'<tr><th>{html.escape(k.replace("_"," ").title())}</th><td>{html.escape(v)}</td></tr>' for k,v in m.items())
     evictions=sum(int(r['evicted_valid']) for r in rows); dirty=sum(int(r['evicted_dirty']) for r in rows)
