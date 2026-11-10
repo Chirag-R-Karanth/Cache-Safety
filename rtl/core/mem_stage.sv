@@ -1,10 +1,18 @@
 // Memory stage: data-bus master for loads/stores, byte-lane extraction and
 // store strobe generation. Owns the MEM/WB register; holds EX/MEM via `hold`
 // (mem_busy) until the bus transaction completes.
+//
+// Phase 3: on a late-resolve `squash` the wrong-path store sitting in MEM
+// (first cycle of its residency, so its transaction never started) is
+// suppressed — wrong-path stores must not commit. Speculative loads are
+// deliberately left unblocked: their memory access (cache fill) must
+// survive the squash, which is the Spectre side channel. MEM/WB is cleared
+// with priority over `hold` so the flush always completes.
 module mem_stage (
 	input  logic clk,
 	input  logic rstn,
 	input  core_pkg::exmem_t exmem,
+	input  logic squash,           // late-resolve flush: kill MEM/WB now
 	output logic hold,              // mem_busy: EX/MEM frozen
 	// data bus
 	output logic        d_valid,
@@ -27,7 +35,8 @@ module mem_stage (
 	assign mem_done = !is_mem_op || d_ready;
 	assign hold = exmem.valid && !mem_done;
 
-	assign d_valid = is_mem_op;
+	// wrong-path store squashed before its transaction starts; loads pass
+	assign d_valid = is_mem_op && !(squash && exmem.c.is_store);
 	assign d_addr  = exmem.ex_result;
 
 	// store lane replication
@@ -75,6 +84,10 @@ module mem_stage (
 
 	always_ff @(posedge clk or negedge rstn) begin
 		if (!rstn) begin
+			memwb_q <= '0;
+		end else if (squash) begin
+			// the retiring branch (current WB slot) has already written
+			// back this cycle; everything behind the squash dies here
 			memwb_q <= '0;
 		end else if (!hold) begin
 			// instruction leaves MEM every cycle it is not held;

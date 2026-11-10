@@ -19,6 +19,9 @@ mkdir -p "$BUILD"
 echo "== compiling testbench =="
 iverilog -g2012 -o "$BUILD/tb_core.vvp" \
 	"$ROOT/rtl/core/core_pkg.sv" \
+	"$ROOT/rtl/predictor/bht_2bit.sv" \
+	"$ROOT/rtl/predictor/btb.sv" \
+	"$ROOT/rtl/core/scoreboard.sv" \
 	"$ROOT/rtl/core/decode_comb.sv" \
 	"$ROOT/rtl/core/regfile.sv" \
 	"$ROOT/rtl/core/decode.sv" \
@@ -29,6 +32,31 @@ iverilog -g2012 -o "$BUILD/tb_core.vvp" \
 	"$ROOT/rtl/core/csr.sv" \
 	"$ROOT/rtl/core/core5.sv" \
 	"$ROOT/tb/integration/tb_core.sv"
+
+echo "== predictor unit tests =="
+rm -f "$BUILD/.unit_status"
+for unit in bht btb; do
+	case "$unit" in
+		bht) src="$ROOT/rtl/predictor/bht_2bit.sv" ;;
+		btb) src="$ROOT/rtl/predictor/btb.sv" ;;
+	esac
+	iverilog -g2012 -o "$BUILD/tb_$unit.vvp" "$src" "$ROOT/tb/unit/tb_$unit.sv"
+	out=$(vvp "$BUILD/tb_$unit.vvp" 2>&1 || true)
+	if printf '%s\n' "$out" | grep -q '^PASS' && \
+	   ! printf '%s\n' "$out" | grep -q '^FAIL'; then
+		echo "PASS tb_$unit ($(printf '%s\n' "$out" | grep '^PASS'))"
+	else
+		echo "FAIL tb_$unit:"
+		printf '%s\n' "$out"
+		echo "PREDICTOR_UNIT_FAIL=1" >> "$BUILD/.unit_status"
+	fi
+done
+if [[ -f "$BUILD/.unit_status" ]]; then
+	rm -f "$BUILD/.unit_status"
+	echo
+	echo "RESULT: predictor unit tests FAILED"
+	exit 1
+fi
 
 CFLAGS="-march=rv32i_zicsr -mabi=ilp32 -nostdlib -nostartfiles -ffreestanding -O1"
 
@@ -46,6 +74,10 @@ expect_value() {
 run_hex() {
 	local name="$1" hex="$2" expected="$3" out magic
 	out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" 2>&1 || true)
+	# misprediction statistics (Phase 3), shown for branch-heavy tests
+	if printf '%s\n' "$out" | grep -q '^STAT'; then
+		printf '%s\n' "$out" | grep '^STAT' | sed "s/^/  [$name] /"
+	fi
 	magic=$(printf '%s\n' "$out" | grep -oE 'MAGIC 0x[0-9a-fA-F]+' | \
 		head -1 | awk '{print $2}' || true)
 	if [[ -z "$magic" ]]; then

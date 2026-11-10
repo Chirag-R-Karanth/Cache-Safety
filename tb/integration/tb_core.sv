@@ -86,10 +86,31 @@ module tb_core;
 			// magic signature region: word store to 0xFFFF0000
 			if (d_wstrb == 4'b1111 && d_addr[31:16] == 16'hFFFF) begin
 				$display("MAGIC 0x%08x", d_wdata);
-				$finish;
+				finish_stats;
 			end
 		end
 	end
+
+	// ---- branch statistics (Phase 3: misprediction rate) ----
+	int unsigned stat_br = 0; // non-speculative control-transfer resolves
+	int unsigned stat_mp = 0; // late-resolve squashes (mispredictions)
+
+	always @(posedge clk) begin
+		if (rstn && uut.u_execute.resolve_valid && !uut.block_commit)
+			stat_br <= stat_br + 1;
+		if (rstn && uut.squash)
+			stat_mp <= stat_mp + 1;
+	end
+
+	task automatic finish_stats;
+		real rate;
+		begin
+			rate = (stat_br == 0) ? 100.0 : (100.0 * stat_mp) / stat_br;
+			$display("STAT branches=%0d mispredicts=%0d rate=%0.2f%%",
+				stat_br, stat_mp, rate);
+			$finish;
+		end
+	endtask
 
 	// reset + timeout + trap
 	initial begin
@@ -97,13 +118,13 @@ module tb_core;
 		rstn <= 1;
 		repeat (timeout_cycles) @(posedge clk);
 		$display("TIMEOUT after %0d cycles", timeout_cycles);
-		$finish;
+		finish_stats;
 	end
 
 	always @(posedge clk) begin
 		if (rstn && trap) begin
 			$display("TRAP");
-			$finish;
+			finish_stats;
 		end
 		if (rstn && $test$plusargs("trace")) begin
 			if (uut.memwb.valid)

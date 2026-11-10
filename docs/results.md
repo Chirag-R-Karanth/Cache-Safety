@@ -52,9 +52,44 @@ python3 scripts/analyse.py --summary sim/results/demo/run_summary.csv \
     --accesses sim/results/demo/run_accesses.csv --out-dir sim/results/demo
 ```
 
+## Phase 3 — BHT/BTB predictor + late-resolving branch squash
+
+All numbers from the `STAT` line the TB prints at end of run
+(`make test-riscv`; full suite **28 passed, 0 failed** + 2 predictor unit
+tests).
+
+| Test | Branches | Mispredicts | Rate | Note |
+|---|---|---|---|---|
+| `branchy.S` (branchy benchmark) | 540 | 109 | **20.19%** | data-dependent 4-way chains + tight loops; loops learn (BHT), data-dependent chains don't |
+| `fib.c` (recursive C) | 1630 | 528 | 32.39% | call/return via `jalr` with varying return targets (cold/stale BTB) |
+| `branch.S` (directed) | 23 | 13 | 56.52% | every branch runs 1–2× — cold predictor, mostly first-time taken |
+| `squash.S` (squash correctness) | 14 | 8 | 57.14% | wrong-path store + wrong-path `ecall` suppressed; see below |
+| `rand_1..20` (ISS cross-check) | 6–16 each | 5–11 | 42–91% | short programs, cold predictor; **20/20 architectural match vs ISS** |
+
+**Squash correctness (`squash.S`, expect `4`, PASS):** trains two branch PCs
+to predict taken, then flips their outcome so the taken path is fetched
+speculatively. The wrong path contains (a) a `sw` at distance 1 — it reaches
+MEM on the squash cycle and must be suppressed by the store gate, and (b) an
+`ecall` at distance 1/2 — it reaches EX while `block_commit` is asserted and
+must not trap the TB. Correct-path `lw` re-reads the scratch word as 0 and
+the score lands at 4; the ISS (which never executes a wrong path) agrees.
+The 8 recorded mispredicts confirm the wrong paths were really fetched
+(the test is non-vacuous).
+
+**Predictor unit tests:** `tb/unit/tb_bht.sv` (11 checks: reset state,
+saturating transitions both directions, index aliasing, independence) and
+`tb/unit/tb_btb.sv` (6 checks: cold miss, hit + target/cond, tag-mismatch
+miss, entry overwrite, index independence) — both PASS under Icarus.
+
+Reproduce:
+
+```bash
+make test-riscv          # includes unit tests + STAT lines
+vvp build/riscv-tests/tb_core.vvp +HEX=build/riscv-tests/branchy.hex
+```
+
 ## Planned result artifacts (later phases)
 
-- **Phase 3:** misprediction rate on branchy benchmark; squash correctness.
 - **Phase 4:** speculative-fill side-effect test (squashed load visible in tag array).
 - **Phase 5:** probe latency vs byte value (256 points, one dip) + recovery rate.
 - **Phase 6:** Meltdown leak success rate U/S modes; first live FPGA data.

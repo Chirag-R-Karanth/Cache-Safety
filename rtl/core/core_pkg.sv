@@ -30,15 +30,22 @@ package core_pkg;
 	 logic [2:0] funct3;
 	} ctrl_t;
 
+	// Prediction info captured with the instruction at fetch: what the
+	// BTB/BHT said, carried to EX so the branch can compare actual vs
+	// predicted when it resolves.
 	typedef struct packed {
 	 logic valid;
 	 logic [31:0] pc, instr;
+	 logic pred_taken;
+	 logic [31:0] pred_target;
 	} ifid_t;
 
 	typedef struct packed {
 	 logic valid;
 	 logic [31:0] pc, rs1_val, rs2_val, imm;
 	 logic [4:0] rs1, rs2, rd;
+	 logic pred_taken;
+	 logic [31:0] pred_target;
 	 ctrl_t c;
 	} idex_t;
 

@@ -1,10 +1,20 @@
 // Execute stage: forwarding selects, ALU, branch/jump resolution, CSR request.
-// Owns the EX/MEM pipeline register. Branch prediction baseline: not-taken;
-// a taken branch or any jump redirects and kills younger stages (via core5).
+// Owns the EX/MEM pipeline register.
+//
+// Phase 3 (late-resolving branch): the condition is still computed here in
+// EX, but there is no immediate redirect. Instead a resolve record
+// (mispredict + correct target) is handed to the scoreboard, which defers
+// the squash/redirect until the branch reaches WB — younger instructions
+// keep executing on the predicted path during that window. `block_commit`
+// (asserted while a squash is pending) suppresses wrong-path CSR writes,
+// traps and predictor training. On a squash, EX/MEM is flushed with
+// priority over the MEM hold so the wrong-path occupant dies immediately.
 module execute (
 	input  logic clk,
 	input  logic rstn,
-	input  logic hold,          // MEM busy: freeze EX/MEM, no redirect
+	input  logic hold,          // MEM busy: freeze EX/MEM
+	input  logic squash,        // late-resolve flush: kill EX/MEM now
+	input  logic block_commit,  // squash pending: suppress wrong-path commits
 	input  core_pkg::idex_t idex,
 	input  core_pkg::memwb_t memwb,   // for WB->EX forwarding
 	output core_pkg::exmem_t exmem,   // registered EX/MEM state
@@ -15,9 +25,18 @@ module execute (
 	output logic [31:0] csr_wdata,
 	input  logic [31:0] csr_rdata,
 	output logic csr_fire,
-	// redirect / trap toward core5
-	output logic redirect_valid,
-	output logic [31:0] redirect_target,
+	// resolve record toward the scoreboard
+	output logic        resolve_valid,       // control transfer left EX
+	output logic        resolve_mispredict,
+	output logic [31:0] resolve_target,      // correct next PC when mispredict
+	// predictor training (gated by !block_commit)
+	output logic        train_bht_valid,
+	output logic        train_btb_valid,
+	output logic [31:0] train_pc,
+	output logic        train_taken,
+	output logic [31:0] train_target,
+	output logic        train_cond,
+	// trap toward core5
 	output logic trap_valid
 );
 	import core_pkg::*;
@@ -28,6 +47,8 @@ module execute (
 	logic br_taken;
 	logic [31:0] br_target, jalr_target;
 	logic ex_fire;
+	logic act_taken;
+	logic [31:0] act_target;
 
 	// ---- forwarding (EX/MEM result first: it is younger) ----
 	always_comb begin
@@ -85,21 +106,37 @@ module execute (
 		jalr_target = (fwd1 + idex.imm) & 32'hFFFF_FFFE;
 	end
 
-	// ---- redirect (fires only when EX not held) ----
-	assign ex_fire = idex.valid && !hold;
+	// actual outcome of a control transfer
 	always_comb begin
-		redirect_valid = 1'b0;
-		redirect_target = 32'd0;
-		if (ex_fire) begin
-			if (idex.c.is_jal || idex.c.is_jalr) begin
-				redirect_valid = 1'b1;
-				redirect_target = idex.c.is_jalr ? jalr_target : br_target;
-			end else if (idex.c.is_branch && br_taken) begin
-				redirect_valid = 1'b1;
-				redirect_target = br_target;
-			end
+		if (idex.c.is_jalr) begin
+			act_taken = 1'b1;
+			act_target = jalr_target;
+		end else if (idex.c.is_jal) begin
+			act_taken = 1'b1;
+			act_target = br_target;
+		end else begin
+			act_taken = idex.c.is_branch && br_taken;
+			act_target = br_target;
 		end
 	end
+
+	assign ex_fire = idex.valid && !hold;
+
+	// ---- resolve record (no immediate redirect anymore) ----
+	assign resolve_valid = ex_fire &&
+		(idex.c.is_branch || idex.c.is_jal || idex.c.is_jalr);
+	assign resolve_mispredict = resolve_valid &&
+		(act_taken ? (!idex.pred_taken || idex.pred_target != act_target)
+		           : idex.pred_taken);
+	assign resolve_target = act_taken ? act_target : (idex.pc + 32'd4);
+
+	// ---- predictor training (never from behind a pending squash) ----
+	assign train_pc = idex.pc;
+	assign train_taken = act_taken;
+	assign train_target = act_target;
+	assign train_cond = idex.c.is_branch;
+	assign train_bht_valid = ex_fire && idex.c.is_branch && !block_commit;
+	assign train_btb_valid = ex_fire && act_taken && !block_commit;
 
 	// ---- CSR ----
 	assign csr_req   = idex.valid && idex.c.csr_op != CSR_NONE;
@@ -107,16 +144,18 @@ module execute (
 	assign csr_op    = idex.c.csr_op;
 	// immediate forms (funct3[2]) use zimm in the rs1 field
 	assign csr_wdata = idex.c.funct3[2] ? {27'b0, idex.rs1} : fwd1;
-	assign csr_fire  = csr_req && !hold;
+	assign csr_fire  = csr_req && !hold && !block_commit;
 
 	// ---- trap: ecall / ebreak / illegal ----
-	assign trap_valid = ex_fire &&
+	assign trap_valid = ex_fire && !block_commit &&
 		(idex.c.ecall || idex.c.ebreak || idex.c.illegal);
 
 	// ---- EX/MEM register ----
 	always_ff @(posedge clk or negedge rstn) begin
 		if (!rstn) begin
 			exmem_q <= '0;
+		end else if (squash) begin
+			exmem_q <= '0; // late-resolve flush overrides the MEM hold
 		end else if (!hold) begin
 			exmem_q.valid      <= idex.valid;
 			exmem_q.pc         <= idex.pc;
