@@ -2,7 +2,7 @@
 
 **Date:** 2026-11-10
 **Branch:** `feat/phase0-setup` → `develop`
-**PR:** _filled in after creation_
+**PR:** https://github.com/Chirag-R-Karanth/Cache-Safety/pull/12 (squash-merged)
 **Tag:** `v0.0-setup`
 
 ## Goals (from spec §5, Phase 0)
