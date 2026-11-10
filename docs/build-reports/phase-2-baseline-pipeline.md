@@ -2,7 +2,8 @@
 
 **Date:** 2026-11-10
 **Branch:** `feat/baseline-pipeline` → `develop`
-**PR:** (this PR)
+**PR:** https://github.com/Chirag-R-Karanth/Cache-Safety/pull/14 (squash-merged)
+**Tag:** `v0.2-core-pipeline`
 **Depends on:** Phase 1 (PR #13, tag `v0.1-cache-sim`)
 
 ## Goals (from spec §5, Phase 2 + deliverable 2)
