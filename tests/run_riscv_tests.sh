@@ -22,6 +22,9 @@ iverilog -g2012 -o "$BUILD/tb_core.vvp" \
 	"$ROOT/rtl/predictor/bht_2bit.sv" \
 	"$ROOT/rtl/predictor/btb.sv" \
 	"$ROOT/rtl/core/scoreboard.sv" \
+	"$ROOT/rtl/cache/replacement_lru.sv" \
+	"$ROOT/rtl/cache/replacement_plru.sv" \
+	"$ROOT/rtl/cache/l1_dcache.sv" \
 	"$ROOT/rtl/core/decode_comb.sv" \
 	"$ROOT/rtl/core/regfile.sv" \
 	"$ROOT/rtl/core/decode.sv" \
@@ -33,7 +36,7 @@ iverilog -g2012 -o "$BUILD/tb_core.vvp" \
 	"$ROOT/rtl/core/core5.sv" \
 	"$ROOT/tb/integration/tb_core.sv"
 
-echo "== predictor unit tests =="
+echo "== unit tests =="
 rm -f "$BUILD/.unit_status"
 for unit in bht btb; do
 	case "$unit" in
@@ -48,13 +51,32 @@ for unit in bht btb; do
 	else
 		echo "FAIL tb_$unit:"
 		printf '%s\n' "$out"
-		echo "PREDICTOR_UNIT_FAIL=1" >> "$BUILD/.unit_status"
+		echo "UNIT_FAIL=1" >> "$BUILD/.unit_status"
+	fi
+done
+# L1 data cache: same testbench under both replacement policies
+for pol in lru plru; do
+	dflag=""
+	[[ "$pol" == "plru" ]] && dflag="-DPLRU_TEST"
+	iverilog -g2012 $dflag -o "$BUILD/tb_dcache_$pol.vvp" \
+		"$ROOT/rtl/cache/replacement_lru.sv" \
+		"$ROOT/rtl/cache/replacement_plru.sv" \
+		"$ROOT/rtl/cache/l1_dcache.sv" \
+		"$ROOT/tb/unit/tb_dcache.sv"
+	out=$(vvp "$BUILD/tb_dcache_$pol.vvp" 2>&1 || true)
+	if printf '%s\n' "$out" | grep -q '^DCACHE TEST PASS' && \
+	   ! printf '%s\n' "$out" | grep -q '^FAIL'; then
+		echo "PASS tb_dcache ($pol, $(printf '%s\n' "$out" | grep -c '^PASS') checks)"
+	else
+		echo "FAIL tb_dcache ($pol):"
+		printf '%s\n' "$out"
+		echo "UNIT_FAIL=1" >> "$BUILD/.unit_status"
 	fi
 done
 if [[ -f "$BUILD/.unit_status" ]]; then
 	rm -f "$BUILD/.unit_status"
 	echo
-	echo "RESULT: predictor unit tests FAILED"
+	echo "RESULT: unit tests FAILED"
 	exit 1
 fi
 
@@ -91,6 +113,21 @@ run_hex() {
 	else
 		echo "FAIL $name magic=$magic expected=$expected"
 		FAIL=$((FAIL + 1))
+	fi
+
+	# Phase 4: speculative-fill side effect (squash_fill only)
+	if [[ "$name" == "squash_fill" ]]; then
+		local f_out
+		f_out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" \
+			+expectfill=100 +expectnofill=200 2>&1 || true)
+		if printf '%s\n' "$f_out" | grep -q '^EXPECTFILL PASS' && \
+		   printf '%s\n' "$f_out" | grep -q '^EXPECTNOFILL PASS'; then
+			echo "  fill side-effect OK (0x100 present, 0x200 absent)"
+		else
+			printf '%s\n' "$f_out" | grep -E '^(EXPECT|MAGIC|STAT)' || true
+			echo "  FAIL $name fill expectation"
+			FAIL=$((FAIL + 1))
+		fi
 	fi
 }
 

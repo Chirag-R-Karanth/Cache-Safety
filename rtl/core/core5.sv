@@ -23,6 +23,9 @@ module core5 (
 	output logic [3:0]  d_wstrb,
 	input  logic        d_ready,
 	input  logic [31:0] d_rdata,
+	// L1 invalidate (Flush+Reload): drop the line containing inval_addr
+	input  logic        inval_valid,
+	input  logic [31:0] inval_addr,
 	// observability
 	output logic trap
 );
@@ -160,6 +163,8 @@ module core5 (
 		.exmem(exmem),
 		.squash(squash),
 		.hold(mem_busy),
+		.inval_valid(inval_valid),
+		.inval_addr(inval_addr),
 		.d_valid(d_valid), .d_addr(d_addr),
 		.d_wdata(d_wdata), .d_wstrb(d_wstrb),
 		.d_ready(d_ready), .d_rdata(d_rdata),

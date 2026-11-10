@@ -15,6 +15,9 @@ module tb_core;
 	logic i_ready, d_ready;
 	logic [31:0] i_rdata, d_rdata;
 	logic trap;
+	// L1 invalidate (unused unless a test pokes them; Phase 5 uses them)
+	logic        inval_valid = 1'b0;
+	logic [31:0] inval_addr  = 32'd0;
 
 	core5 uut (
 		.clk(clk), .rstn(rstn),
@@ -23,6 +26,7 @@ module tb_core;
 		.d_valid(d_valid), .d_addr(d_addr),
 		.d_wdata(d_wdata), .d_wstrb(d_wstrb),
 		.d_ready(d_ready), .d_rdata(d_rdata),
+		.inval_valid(inval_valid), .inval_addr(inval_addr),
 		.trap(trap)
 	);
 
@@ -32,6 +36,10 @@ module tb_core;
 
 	string hex_file;
 	int timeout_cycles;
+	// optional cache-line fill expectations (+expectfill / +expectnofill):
+	// checked against the L1 tag/valid arrays at finish time
+	int expectfill_addr, expectnofill_addr;
+	logic has_expectfill, has_expectnofill;
 
 	initial begin
 		// memory model: zero-initialized like FPGA BRAM (and the ISS)
@@ -43,6 +51,8 @@ module tb_core;
 		end
 		if (!$value$plusargs("TIMEOUT=%d", timeout_cycles))
 			timeout_cycles = 200000;
+		has_expectfill   = $value$plusargs("expectfill=%h", expectfill_addr);
+		has_expectnofill = $value$plusargs("expectnofill=%h", expectnofill_addr);
 		$readmemh(hex_file, imem);
 		if ($test$plusargs("vcd")) begin
 			$dumpfile("tb_core.vcd");
@@ -102,12 +112,46 @@ module tb_core;
 			stat_mp <= stat_mp + 1;
 	end
 
+	// L1 fill expectation: line state must match the squash_fill contract
+	// (cache geometry mirrored: 16 sets, 16-byte lines, tag = addr[31:8])
+	function automatic logic line_hit(input int addr);
+		int set;
+		logic hit;
+		begin
+			set = (addr >> 4) & 15;
+			hit = 1'b0;
+			for (int w = 0; w < 2; w++)
+				if (uut.u_mem.u_cache.valid_q[set][w] &&
+				    uut.u_mem.u_cache.tag_q[set][w] == addr[31:8])
+					hit = 1'b1;
+			return hit;
+		end
+	endfunction
+
+	task automatic finish_fill_check;
+		begin
+			if (has_expectfill) begin
+				if (line_hit(expectfill_addr))
+					$display("EXPECTFILL PASS");
+				else
+					$display("EXPECTFILL FAIL");
+			end
+			if (has_expectnofill) begin
+				if (!line_hit(expectnofill_addr))
+					$display("EXPECTNOFILL PASS");
+				else
+					$display("EXPECTNOFILL FAIL");
+			end
+		end
+	endtask
+
 	task automatic finish_stats;
 		real rate;
 		begin
 			rate = (stat_br == 0) ? 100.0 : (100.0 * stat_mp) / stat_br;
 			$display("STAT branches=%0d mispredicts=%0d rate=%0.2f%%",
 				stat_br, stat_mp, rate);
+			finish_fill_check;
 			$finish;
 		end
 	endtask

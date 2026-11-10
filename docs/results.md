@@ -88,9 +88,58 @@ make test-riscv          # includes unit tests + STAT lines
 vvp build/riscv-tests/tb_core.vvp +HEX=build/riscv-tests/branchy.hex
 ```
 
+## Phase 4 — L1 data cache + speculative fill side effect
+
+Full suite **29 passed, 0 failed** (`make test`: cache-sim tests +
+PicoRV32 smoke + 8 directed + `fib.c` + 20 random seeds vs ISS) plus
+4 unit suites: `tb_bht` (11), `tb_btb` (6), `tb_dcache` **23 checks ×
+both policies** (LRU + PLRU).
+
+**`tb_dcache` (per policy):** cold miss fills 4 words (≥8 cyc), repeat
+load hits with 0 bus ops (≤2 cyc), store-hit write-through updates
+memory + line, store-miss no-write-allocate (memory written, next load
+misses again), set-0 replacement sequence A=0x000/B=0x100/A/C=0x200 →
+A hits and B is evicted, invalidate drops only the addressed line, and
+a **squashed miss** (requester dropped mid-fill) still completes the
+fill with latched state — the re-request then hits with 0 extra reads.
+
+**Headline — `squash_fill.S` (expect 1, PASS + ISS cross-check):**
+the branch at `train` is trained taken twice; its target block loads
+`0x100` and immediately evicts that line with two other set-0 lines,
+so `0x100` is cold when the condition flips. On the flip the predictor
+still redirects fetch to the target, where the cold `lw 0x100` sits at
+distance 1: it reaches MEM on the squash cycle, its fill completes
+after the flush, and the line is **valid at exit** — the timing-visible
+side effect Spectre measures. The TB checks this at finish time
+against the tag/valid arrays:
+
+| Check | Result |
+|---|---|
+| `+expectfill=0x100` — squashed load's line present | **PASS** |
+| `+expectnofill=0x200` — never-touched line absent | **PASS** |
+| STAT | 8 branches, 6 mispredicts (75%) — wrong paths really fetched |
+
+**Negative control:** rebuilding `squash_fill.S` with the wrong-path
+load replaced by `nop` (eviction code untouched) makes
+`EXPECTFILL FAIL` while `EXPECTNOFILL` still passes — so the PASS
+above is genuinely the squashed load's fill, not a warm line left over
+from training.
+
+Misprediction rates are unchanged in character from Phase 3 (cache
+stalls hide nothing: `branchy` 20.19%, `fib` 32.39%, `squash.S`
+57.14%); the new test's 75% reflects its three cold/mismatched
+branches plus two cold `jal`s.
+
+Reproduce:
+
+```bash
+make test-riscv          # includes tb_dcache ×2 + fill side-effect check
+vvp build/riscv-tests/tb_core.vvp +HEX=build/riscv-tests/squash_fill.hex \
+    +expectfill=100 +expectnofill=200
+```
+
 ## Planned result artifacts (later phases)
 
-- **Phase 4:** speculative-fill side-effect test (squashed load visible in tag array).
 - **Phase 5:** probe latency vs byte value (256 points, one dip) + recovery rate.
 - **Phase 6:** Meltdown leak success rate U/S modes; first live FPGA data.
 - **Phase 7:** mitigation comparison — leak rate × IPC/cycle overhead.
