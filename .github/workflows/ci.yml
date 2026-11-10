@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cache-sim:
+    name: Software cache simulator (build + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build cache simulator
+        run: g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic sim/src/cache.cpp -o cache_sim
+      - name: Run simulator test suite
+        run: python3 -m unittest discover -s sim/tests -v
+
+  rtl-smoke:
+    name: RTL smoke test (Icarus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Icarus Verilog
+        run: sudo apt-get update && sudo apt-get install -y iverilog
+      - name: Compile and run PicoRV32 smoke testbench
+        run: |
+          iverilog -g2012 -o tb_picorv32.vvp rtl/core/picorv32/picorv32.v tb/unit/tb_picorv32.sv
+          vvp tb_picorv32.vvp
+      - name: Upload VCD waveform on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcd-waveforms
+          path: "*.vcd"
+          if-no-files-found: ignore
+
+  lint-python:
+    name: Python lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax-check Python sources
+        run: |
+          python3 -m py_compile sim/tests/test_cache.py scripts/run_sweep.py scripts/analyse.py

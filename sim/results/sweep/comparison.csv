@@ -1,0 +1,7 @@
+ways,policy,accesses,hits,misses,hit_rate,writebacks
+1,lru,20,5,15,0.25,1
+1,fifo,20,5,15,0.25,1
+2,lru,20,6,14,0.3,1
+2,fifo,20,5,15,0.25,1
+4,lru,20,7,13,0.35,1
+4,fifo,20,12,8,0.6,1

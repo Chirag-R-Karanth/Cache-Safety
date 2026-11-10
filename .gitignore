@@ -1,0 +1,39 @@
+# Build artifacts
+cache_sim
+*.o
+*.out
+build/
+dist/
+
+# Simulation output
+*.vcd
+*.fst
+*.log
+sim/results/demo/
+sim/results/sweep/*_accesses.csv
+sim/results/sweep/*_summary.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# FPGA bitstreams (large binaries; keep out of git or use Git LFS)
+fpga/bitstreams/*.bit
+fpga/bitstreams/*.hwh
+fpga/bitstreams/*.bin
+*.jou
+*.str
+*.runs/
+*.cache/
+*.hw/
+*.ip_user_files/
+*.sim/
+*.Xil/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.vvp

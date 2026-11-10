@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 def metrics(path):
     with open(path,newline='') as f:return {r['metric']:r['value'] for r in csv.DictReader(f)}
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--binary',default='./cache_sim');p.add_argument('--trace',default='traces/locality_demo.trace');p.add_argument('--out-dir',default='results/sweep');p.add_argument('--capacity',type=int,default=256);p.add_argument('--line-size',type=int,default=64);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--binary',default='./cache_sim');p.add_argument('--trace',default='sim/traces/locality_demo.trace');p.add_argument('--out-dir',default='sim/results/sweep');p.add_argument('--capacity',type=int,default=256);p.add_argument('--line-size',type=int,default=64);a=p.parse_args()
     out=pathlib.Path(a.out_dir);out.mkdir(parents=True,exist_ok=True); rows=[]
     for ways in (1,2,4):
         for policy in ('lru','fifo'):
