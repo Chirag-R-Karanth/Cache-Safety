@@ -26,6 +26,12 @@ module core5 (
 	// L1 invalidate (Flush+Reload): drop the line containing inval_addr
 	input  logic        inval_valid,
 	input  logic [31:0] inval_addr,
+	// Phase 7 mitigation: disable speculative fill so squashed loads never
+	// leave a line valid (removes the Spectre/Meltdown cache side channel)
+	input  logic        disable_spec_fill,
+	// Phase 7 mitigation: serialize fetch after a branch until it resolves,
+	// eliminating the speculative window (serialization barrier / fence)
+	input  logic        serialize_branch,
 	// observability
 	output logic trap
 );
@@ -77,8 +83,12 @@ module core5 (
 	                  ((haz_uses_rs1 && haz_rs1 == idex.rd) ||
 	                   (haz_uses_rs2 && haz_rs2 == idex.rd));
 
-	// IF/ID advances only when not frozen and not being flushed
-	assign take = ifid.valid && !mem_busy && !load_use && !redirect;
+	// IF/ID advances only when not frozen and not being flushed.
+	// Phase 7: with serialize_branch, also hold while a squash is pending
+	// (block_commit) so no younger instruction enters the pipeline before
+	// the branch resolves — a speculation barrier / fence.
+	assign take = ifid.valid && !mem_busy && !load_use && !redirect &&
+	              !(serialize_branch && block_commit);
 
 	// ---- stages ----
 	fetch u_fetch (
@@ -177,6 +187,7 @@ module core5 (
 		.squash(squash),
 		.hold(mem_busy),
 		.priv_user(priv_user),
+		.disable_spec_fill(disable_spec_fill),
 		.fault_valid(fault_valid),
 		.fault_addr(fault_addr),
 		.inval_valid(inval_valid),

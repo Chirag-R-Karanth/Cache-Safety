@@ -18,6 +18,9 @@ module tb_core;
 	// L1 invalidate (unused unless a test pokes them; Phase 5 uses them)
 	logic        inval_valid = 1'b0;
 	logic [31:0] inval_addr  = 32'd0;
+	// Phase 7 mitigations (driven from plusargs)
+	logic disable_spec_fill = 1'b0;
+	logic serialize_branch  = 1'b0;
 
 	core5 uut (
 		.clk(clk), .rstn(rstn),
@@ -27,6 +30,8 @@ module tb_core;
 		.d_wdata(d_wdata), .d_wstrb(d_wstrb),
 		.d_ready(d_ready), .d_rdata(d_rdata),
 		.inval_valid(inval_valid), .inval_addr(inval_addr),
+		.disable_spec_fill(disable_spec_fill),
+		.serialize_branch(serialize_branch),
 		.trap(trap)
 	);
 
@@ -58,6 +63,8 @@ module tb_core;
 		has_expectnofill = $value$plusargs("expectnofill=%h", expectnofill_addr);
 		has_dump = $value$plusargs("DUMPADDR=%h", dump_addr) &&
 		           $value$plusargs("DUMPWORDS=%d", dump_words);
+		disable_spec_fill = $test$plusargs("DISABLE_SPEC_FILL");
+		serialize_branch  = $test$plusargs("SERIALIZE_BRANCH");
 		$readmemh(hex_file, imem);
 		if ($test$plusargs("vcd")) begin
 			$dumpfile("tb_core.vcd");
@@ -117,12 +124,21 @@ module tb_core;
 	// ---- branch statistics (Phase 3: misprediction rate) ----
 	int unsigned stat_br = 0; // non-speculative control-transfer resolves
 	int unsigned stat_mp = 0; // late-resolve squashes (mispredictions)
+	// Phase 7: cycle / instret counters for IPC overhead measurement
+	int unsigned cycle_count = 0;
+	int unsigned instret_count = 0;
 
 	always @(posedge clk) begin
 		if (rstn && uut.u_execute.resolve_valid && !uut.block_commit)
 			stat_br <= stat_br + 1;
 		if (rstn && uut.squash)
 			stat_mp <= stat_mp + 1;
+		// cycle count (runs after reset)
+		if (rstn)
+			cycle_count <= cycle_count + 1;
+		// instret: count each instruction as it leaves MEM/WB
+		if (rstn && uut.memwb.valid && !uut.u_mem.hold)
+			instret_count <= instret_count + 1;
 	end
 
 	// L1 fill expectation: line state must match the squash_fill contract
@@ -169,11 +185,14 @@ module tb_core;
 	endtask
 
 	task automatic finish_stats;
-		real rate;
+		real rate, ipc;
 		begin
 			rate = (stat_br == 0) ? 100.0 : (100.0 * stat_mp) / stat_br;
+			ipc  = (cycle_count == 0) ? 0.0 : (real'(instret_count)) / real'(cycle_count);
 			$display("STAT branches=%0d mispredicts=%0d rate=%0.2f%%",
 				stat_br, stat_mp, rate);
+			$display("CYCLES=%0d INSTRET=%0d IPC=%0.3f",
+				cycle_count, instret_count, ipc);
 			finish_fill_check;
 			finish_dump;
 			$finish;

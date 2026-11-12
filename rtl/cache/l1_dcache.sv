@@ -15,6 +15,10 @@
 // becomes valid — a timing-visible side effect of a squashed load, which
 // is exactly what the Spectre attack measures. The squashed instruction's
 // data return is discarded by the pipeline (MEM/WB cleared on squash).
+//
+// Phase 7 mitigation: `disable_spec_fill` aborts a fill when a squash occurs
+// mid-fill, so a squashed load can never leave a line valid — removing the
+// cache side channel both Spectre v1 and Meltdown depend on.
 module l1_dcache #(
 	parameter int SETS = 16,
 	parameter int WAYS = 2,
@@ -29,11 +33,15 @@ module l1_dcache #(
 	input  logic [31:0] req_wdata,
 	input  logic [3:0]  req_wstrb,
 	input  logic        req_we,      // 1 = store
+	// disable speculative fill: a squashed load never leaves a line valid
+	input  logic        disable_spec_fill,
 	output logic        rsp_ready,   // 1-cycle completion pulse
 	output logic [31:0] rsp_rdata,
 	// invalidate: drop the line containing inval_addr
 	input  logic        inval_valid,
 	input  logic [31:0] inval_addr,
+	// late-resolve squash: abort an in-flight fill if asserted during S_FILL
+	input  logic        squash,
 	// memory side (same valid/ready protocol as the TB slave)
 	output logic        m_valid,
 	output logic [31:0] m_addr,
@@ -113,6 +121,9 @@ module l1_dcache #(
 	logic [TAG_W-1:0] fill_tag_q;
 	logic [31:0]    fill_base_q;
 	logic [31:0]    rsp_rdata_q;
+	// Phase 7: latched when a squash occurs during an in-flight fill;
+	// used to abort the fill (line left invalid) when disable_spec_fill.
+	logic           fill_squashed_q;
 
 	logic fill_word_last;
 	assign fill_word_last = (fill_idx_q == OW'(LINE_WORDS - 1));
@@ -168,6 +179,7 @@ module l1_dcache #(
 			fill_tag_q  <= '0;
 			fill_base_q <= 32'd0;
 			rsp_rdata_q <= 32'd0;
+			fill_squashed_q <= 1'b0;
 			for (int s = 0; s < SETS; s++)
 				for (int w = 0; w < WAYS; w++) begin
 					valid_q[s][w] <= 1'b0;
@@ -187,15 +199,22 @@ module l1_dcache #(
 							rsp_rdata_q <= data_q[req_set][hit_way][req_word];
 							state_q <= S_RESP;
 						end else begin
-							// miss: latch line identity (the requester may be
-							// squashed mid-fill; the fill must still complete)
-							fill_way_q  <= victim_way;
-							fill_set_q  <= req_set;
-							fill_tag_q  <= req_tag;
-							fill_base_q <= line_base;
-							fill_idx_q  <= '0;
-							valid_q[req_set][victim_way] <= 1'b0;
-							state_q <= S_FILL;
+							// miss: with disable_spec_fill, a squashed load
+							// never starts a fill (removes the side channel)
+							if (disable_spec_fill && squash) begin
+								state_q <= S_IDLE; // discard squashed request
+							end else begin
+								// latch line identity (the requester may be
+								// squashed mid-fill; the fill must still complete)
+								fill_way_q  <= victim_way;
+								fill_set_q  <= req_set;
+								fill_tag_q  <= req_tag;
+								fill_base_q <= line_base;
+								fill_idx_q  <= '0;
+								fill_squashed_q <= 1'b0;
+								valid_q[req_set][victim_way] <= 1'b0;
+								state_q <= S_FILL;
+							end
 						end
 					end
 				end
@@ -205,11 +224,18 @@ module l1_dcache #(
 						state_q <= S_RESP;
 				end
 				S_FILL: begin
+					if (squash)
+						fill_squashed_q <= 1'b1;
 					if (m_ready) begin
 						data_q[fill_set_q][fill_way_q][fill_idx_q] <= m_rdata;
 						if (fill_word_last) begin
-							valid_q[fill_set_q][fill_way_q] <= 1'b1;
-							tag_q[fill_set_q][fill_way_q]   <= fill_tag_q;
+							// Phase 7: with disable_spec_fill, a squashed
+							// load never leaves its line valid — removing
+							// the cache side channel Spectre/Meltdown need.
+							if (!disable_spec_fill || !fill_squashed_q) begin
+								valid_q[fill_set_q][fill_way_q] <= 1'b1;
+								tag_q[fill_set_q][fill_way_q]   <= fill_tag_q;
+							end
 							state_q <= S_IDLE; // re-serve the request (now hit)
 						end else begin
 							fill_idx_q <= fill_idx_q + OW'(1);

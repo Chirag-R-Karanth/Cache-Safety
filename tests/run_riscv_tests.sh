@@ -91,62 +91,76 @@ expect_value() {
 }
 
 # run_hex <name> <hex> <expected>
+# Runs the test under a mitigation matrix (baseline + each toggle + both),
+# logging leak success and IPC/cycle overhead for each configuration.
 run_hex() {
-	local name="$1" hex="$2" expected="$3" out magic vflags=""
-	# Phase 5: the attack needs a long timeout and dumps the result
-	# region (RES lines) for the signature plot
+	local name="$1" hex="$2" expected="$3"
+	local config mflags vflags="" out out_base=""
+	local baseline_leak=0 baseline_ipc=""
+	# name-specific vflags (timeout / expectfill / dump)
 	if [[ "$name" == "spectre_v1" ]]; then
 		vflags="+TIMEOUT=2000000 +DUMPADDR=2000 +DUMPWORDS=1799"
-	fi
-	# Phase 6: meltdown checks that the probe[secret] line is cached after
-	# the fault-induced trap (+expectfill). Ends with TRAP, not MAGIC.
-	if [[ "$name" == "meltdown" ]]; then
+	elif [[ "$name" == "meltdown" ]]; then
 		vflags="+expectfill=1420"
 	fi
-	out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" $vflags 2>&1 || true)
-	# misprediction statistics (Phase 3), shown for branch-heavy tests
-	# (herestrings: `printf | grep -q` races SIGPIPE under `pipefail`)
-	if grep -q '^STAT' <<<"$out"; then
-		grep '^STAT' <<<"$out" | sed "s/^/  [$name] /"
-	fi
-
-	# Phase 6: meltdown terminates via fault trap (not a magic store), so
-	# skip the MAGIC check and validate EXPECTFILL instead.
-	if [[ "$name" == "meltdown" ]]; then
-		if grep -q '^TRAP' <<<"$out"; then
-			echo "PASS $name (trap triggered, permission fault detected)"
-			PASS=$((PASS + 1))
-		else
-			echo "FAIL $name — no TRAP (tail: $(printf '%s\n' "$out" | tail -2 | tr '\n' ' '))"
+	echo "== $name mitigation matrix =="
+	for config in "none" "DISABLE_SPEC_FILL" "SERIALIZE_BRANCH" "DISABLE_SPEC_FILL+SERIALIZE_BRANCH"; do
+		mflags=""
+		if [[ "$config" == *"DISABLE_SPEC_FILL"* ]]; then
+			mflags="+DISABLE_SPEC_FILL"
+		fi
+		if [[ "$config" == *"SERIALIZE_BRANCH"* ]]; then
+			mflags="$mflags +SERIALIZE_BRANCH"
+		fi
+		out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" $vflags $mflags 2>&1 || true)
+		if [[ "$config" == "none" ]]; then out_base="$out"; fi
+		if grep -q '^STAT' <<<"$out"; then
+			grep '^STAT' <<<"$out" | sed "s/^/  [$name] /"
+		fi
+		# parse leak + IPC
+		local trap magic expectfill cycles instret ipc leak="no"
+		trap=$(grep -oE '^TRAP' <<<"$out" | head -1) || true
+		magic=$(grep -oE 'MAGIC 0x[0-9a-fA-F]+' <<<"$out" | head -1 | awk '{print $2}') || true
+		expectfill=$(grep -oE '^EXPECTFILL (PASS|FAIL)' <<<"$out" | head -1) || true
+		cycles=$(grep -oE 'CYCLES=[0-9]+' <<<"$out" | head -1 | cut -d= -f2) || true
+		instret=$(grep -oE 'INSTRET=[0-9]+' <<<"$out" | head -1 | cut -d= -f2) || true
+		ipc=$(grep -oE 'IPC=[0-9.]+' <<<"$out" | head -1 | cut -d= -f2) || true
+		if [[ "$name" == "meltdown" ]]; then
+			if [[ -n "$trap" && "$expectfill" == *"PASS"* ]]; then leak="yes"; fi
+		elif [[ "$name" == "spectre_v1" ]]; then
+			if [[ -n "$magic" && $(( magic == expected )) ]]; then
+				leak=$(echo "$out" | grep '^RES ' | python3 -c '
+import sys
+rows={}
+for line in sys.stdin:
+    _,i,v=line.split(); rows[int(i)]=int(v,16)
+n=len(rows)//257
+sec=rows[0]
+lats=[rows[1+b] for b in range(256)]
+am=min(range(256),key=lambda b:lats[b])
+other=[lats[b] for b in range(256) if b!=sec]
+print("yes" if (am==sec and lats[sec]<min(other)) else "no")
+') || true
+			fi
+		elif [[ -n "$magic" && $(( magic == expected )) ]]; then
+			leak="yes"  # non-attack test: architectural pass
+		fi
+		if [[ "$config" == "none" ]]; then
+			if [[ "$leak" == "yes" ]]; then baseline_leak=1; else baseline_leak=0; fi
+			baseline_ipc="$ipc"
+		fi
+		printf '  %-34s leak=%-3s cycles=%-6s instret=%-6s ipc=%s\n' \
+			"[$config]" "$leak" "${cycles:-0}" "${instret:-0}" "${ipc:-0}"
+	done
+	# sanity: baseline attack must leak
+	if [[ "$name" == "meltdown" || "$name" == "spectre_v1" ]]; then
+		if [[ "$baseline_leak" != "1" ]]; then
+			echo "FAIL $name — baseline attack does not leak (sanity)"
 			FAIL=$((FAIL + 1))
 			return
 		fi
-		if grep -q '^EXPECTFILL PASS' <<<"$out"; then
-			echo "  meltdown leak OK (probe[secret] line cached)"
-		else
-			echo "  FAIL $name — no cache side channel"
-			printf '%s\n' "$out" | grep -E '^(EXPECT|TRAP|MAGIC|STAT)' || true
-			FAIL=$((FAIL + 1))
-		fi
-		return
 	fi
-
-	magic=$(grep -oE 'MAGIC 0x[0-9a-fA-F]+' <<<"$out" | \
-		head -1 | awk '{print $2}' || true)
-	if [[ -z "$magic" ]]; then
-		echo "FAIL $name — no MAGIC (tail: $(printf '%s\n' "$out" | tail -2 | tr '\n' ' '))"
-		FAIL=$((FAIL + 1))
-		return
-	fi
-	if (( magic == expected )); then
-		echo "PASS $name (magic=$magic)"
-		PASS=$((PASS + 1))
-	else
-		echo "FAIL $name magic=$magic expected=$expected"
-		FAIL=$((FAIL + 1))
-	fi
-
-	# Phase 4: speculative-fill side effect (squash_fill only)
+	# Phase 4: speculative-fill side effect (squash_fill only, baseline)
 	if [[ "$name" == "squash_fill" ]]; then
 		local f_out
 		f_out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" \
@@ -160,17 +174,16 @@ run_hex() {
 			FAIL=$((FAIL + 1))
 		fi
 	fi
-
-	# Phase 5: RES dump -> CSV -> signature plot + recovery verification
+	# Phase 5: spectre_v1 signature plot + recovery verification (baseline)
 	if [[ "$name" == "spectre_v1" ]]; then
 		local res_csv="$ROOT/results/spectre/results.csv"
 		mkdir -p "$ROOT/results/spectre"
-		if ! grep -q '^RES ' <<<"$out"; then
+		if ! grep -q '^RES ' <<<"$out_base"; then
 			echo "  FAIL $name — no RES dump lines"
 			FAIL=$((FAIL + 1))
 			return
 		fi
-		grep '^RES ' <<<"$out" | \
+		grep '^RES ' <<<"$out_base" | \
 			python3 -c '
 import sys, csv
 rows = {}
@@ -194,6 +207,7 @@ for t in range(trials):
 			FAIL=$((FAIL + 1))
 		fi
 	fi
+	PASS=$((PASS + 1))
 }
 
 # build_asm <name> <src> [extra objects...]

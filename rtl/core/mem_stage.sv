@@ -19,6 +19,9 @@ module mem_stage (
 	input  logic [31:0] inval_addr,
 	// privilege mode (from mstatus.UPRIV): 1 = user, 0 = machine/supervisor
 	input  logic        priv_user,
+	// Phase 7 mitigation: disable speculative fill so squashed loads never
+	// leave a line valid (removes the Spectre/Meltdown cache side channel)
+	input  logic        disable_spec_fill,
 	// permission fault: load/store to protected region in user mode
 	output logic        fault_valid,
 	output logic [31:0] fault_addr,
@@ -112,17 +115,19 @@ module mem_stage (
 	end
 
 	// ---- L1 cache ----
-	l1_dcache u_cache (
+		l1_dcache u_cache (
 		.clk(clk), .rstn(rstn),
 		.req_valid(req_valid),
 		.req_addr(req_addr),
 		.req_wdata(req_wdata),
 		.req_wstrb(req_wstrb),
 		.req_we(req_we),
+		.disable_spec_fill(disable_spec_fill),
 		.rsp_ready(rsp_ready),
 		.rsp_rdata(rsp_rdata),
 		.inval_valid(inval_valid),
 		.inval_addr(inval_addr),
+		.squash(squash),
 		.m_valid(d_valid), .m_addr(d_addr),
 		.m_wdata(d_wdata), .m_wstrb(d_wstrb),
 		.m_ready(d_ready), .m_rdata(d_rdata)
