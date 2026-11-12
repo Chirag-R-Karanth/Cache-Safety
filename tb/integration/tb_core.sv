@@ -189,8 +189,19 @@ module tb_core;
 		finish_stats;
 	end
 
+	// Phase 6: on trap, delay a few cycles so any in-flight speculative
+	// cache fills (e.g. Meltdown probe load) can complete before the cache
+	// state is inspected by finish_stats (+expectfill / +expectnofill).
+	logic trap_pending = 1'b0;
+	int trap_delay = 0;
 	always @(posedge clk) begin
-		if (rstn && trap) begin
+		if (rstn && trap && !trap_pending) begin
+			trap_pending <= 1'b1;
+			trap_delay   <= 10; // cycles to let fills drain
+		end
+		if (trap_pending && trap_delay > 0)
+			trap_delay <= trap_delay - 1;
+		if (trap_pending && trap_delay == 0) begin
 			$display("TRAP");
 			finish_stats;
 		end

@@ -17,6 +17,11 @@ module mem_stage (
 	// invalidate (Flush+Reload): drop line containing inval_addr
 	input  logic        inval_valid,
 	input  logic [31:0] inval_addr,
+	// privilege mode (from mstatus.UPRIV): 1 = user, 0 = machine/supervisor
+	input  logic        priv_user,
+	// permission fault: load/store to protected region in user mode
+	output logic        fault_valid,
+	output logic [31:0] fault_addr,
 	// external data bus (cache memory side)
 	output logic        d_valid,
 	output logic [31:0] d_addr,
@@ -51,6 +56,17 @@ module mem_stage (
 	assign req_valid = is_mem_op && !(squash && exmem.c.is_store);
 	assign req_addr  = exmem.ex_result;
 	assign req_we    = exmem.c.is_store;
+
+	// Phase 6: permission fault — user-mode access to the protected region
+	// (addr >= PROT_BASE) is a Meltdown-triggering fault. The fault is
+	// detected here in MEM and reported to the scoreboard, which delays the
+	// squash/trap to give dependent transient instructions a window to
+	// execute (their cache side effects survive the eventual flush).
+	localparam logic [31:0] PROT_BASE = 32'h3000; // kernel-only region
+	logic addr_protected;
+	assign addr_protected = (req_addr >= PROT_BASE);
+	assign fault_valid = is_mem_op && addr_protected && priv_user;
+	assign fault_addr  = req_addr;
 
 	// store lane replication (was the external bus encoding)
 	always_comb begin

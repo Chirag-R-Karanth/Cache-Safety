@@ -98,12 +98,39 @@ run_hex() {
 	if [[ "$name" == "spectre_v1" ]]; then
 		vflags="+TIMEOUT=2000000 +DUMPADDR=2000 +DUMPWORDS=1799"
 	fi
+	# Phase 6: meltdown checks that the probe[secret] line is cached after
+	# the fault-induced trap (+expectfill). Ends with TRAP, not MAGIC.
+	if [[ "$name" == "meltdown" ]]; then
+		vflags="+expectfill=1420"
+	fi
 	out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" $vflags 2>&1 || true)
 	# misprediction statistics (Phase 3), shown for branch-heavy tests
 	# (herestrings: `printf | grep -q` races SIGPIPE under `pipefail`)
 	if grep -q '^STAT' <<<"$out"; then
 		grep '^STAT' <<<"$out" | sed "s/^/  [$name] /"
 	fi
+
+	# Phase 6: meltdown terminates via fault trap (not a magic store), so
+	# skip the MAGIC check and validate EXPECTFILL instead.
+	if [[ "$name" == "meltdown" ]]; then
+		if grep -q '^TRAP' <<<"$out"; then
+			echo "PASS $name (trap triggered, permission fault detected)"
+			PASS=$((PASS + 1))
+		else
+			echo "FAIL $name — no TRAP (tail: $(printf '%s\n' "$out" | tail -2 | tr '\n' ' '))"
+			FAIL=$((FAIL + 1))
+			return
+		fi
+		if grep -q '^EXPECTFILL PASS' <<<"$out"; then
+			echo "  meltdown leak OK (probe[secret] line cached)"
+		else
+			echo "  FAIL $name — no cache side channel"
+			printf '%s\n' "$out" | grep -E '^(EXPECT|TRAP|MAGIC|STAT)' || true
+			FAIL=$((FAIL + 1))
+		fi
+		return
+	fi
+
 	magic=$(grep -oE 'MAGIC 0x[0-9a-fA-F]+' <<<"$out" | \
 		head -1 | awk '{print $2}' || true)
 	if [[ -z "$magic" ]]; then

@@ -50,14 +50,21 @@ module core5 (
 	logic train_bht_valid, train_btb_valid, train_taken, train_cond;
 	logic [31:0] train_pc, train_target;
 
+	// Phase 6: memory fault from mem_stage
+	logic fault_valid, fault_trap;
+	logic [31:0] fault_addr;
+
 	scoreboard u_scoreboard (
 		.clk(clk), .rstn(rstn),
 		.resolve_mispredict(resolve_mispredict),
 		.resolve_target(resolve_target),
+		.fault_valid(fault_valid),
+		.fault_addr(fault_addr),
 		.squash(squash),
 		.squash_target(squash_target),
 		.block_commit(block_commit),
-		.speculating(speculating)
+		.speculating(speculating),
+		.trap(fault_trap)
 	);
 
 	// squash is the pipeline-wide redirect/flush
@@ -94,6 +101,8 @@ module core5 (
 	logic wb_wen;
 	logic [4:0] wb_waddr;
 	logic [31:0] wb_wdata;
+	logic priv_user;
+	logic exec_trap_valid;
 
 	writeback u_writeback (
 		.memwb(memwb),
@@ -133,7 +142,8 @@ module core5 (
 		.req(csr_req), .addr(csr_addr), .op(csr_op),
 		.wdata(csr_wdata), .fire(csr_fire),
 		.rdata(csr_rdata),
-		.retire(memwb.valid && wb_first)
+		.retire(memwb.valid && wb_first),
+		.priv_user(priv_user)
 	);
 
 	execute u_execute (
@@ -155,14 +165,20 @@ module core5 (
 		.train_taken(train_taken),
 		.train_target(train_target),
 		.train_cond(train_cond),
-		.trap_valid(trap)
+		.trap_valid(exec_trap_valid)
 	);
+
+	// trap = software traps (ecall/ebreak/illegal) or Phase 6 memory fault
+	assign trap = exec_trap_valid || fault_trap;
 
 	mem_stage u_mem (
 		.clk(clk), .rstn(rstn),
 		.exmem(exmem),
 		.squash(squash),
 		.hold(mem_busy),
+		.priv_user(priv_user),
+		.fault_valid(fault_valid),
+		.fault_addr(fault_addr),
 		.inval_valid(inval_valid),
 		.inval_addr(inval_addr),
 		.d_valid(d_valid), .d_addr(d_addr),
