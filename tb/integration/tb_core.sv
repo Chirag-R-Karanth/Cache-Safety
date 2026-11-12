@@ -40,6 +40,9 @@ module tb_core;
 	// checked against the L1 tag/valid arrays at finish time
 	int expectfill_addr, expectnofill_addr;
 	logic has_expectfill, has_expectnofill;
+	// optional dmem dump on the magic store (Phase 5 result export)
+	int dump_addr, dump_words;
+	logic has_dump;
 
 	initial begin
 		// memory model: zero-initialized like FPGA BRAM (and the ISS)
@@ -53,6 +56,8 @@ module tb_core;
 			timeout_cycles = 200000;
 		has_expectfill   = $value$plusargs("expectfill=%h", expectfill_addr);
 		has_expectnofill = $value$plusargs("expectnofill=%h", expectnofill_addr);
+		has_dump = $value$plusargs("DUMPADDR=%h", dump_addr) &&
+		           $value$plusargs("DUMPWORDS=%d", dump_words);
 		$readmemh(hex_file, imem);
 		if ($test$plusargs("vcd")) begin
 			$dumpfile("tb_core.vcd");
@@ -76,6 +81,7 @@ module tb_core;
 
 	always_ff @(posedge clk) begin
 		d_ready_q <= 1'b0;
+		inval_valid <= 1'b0; // default: one-cycle pulse
 		if (d_valid && !d_ready_q) begin
 			d_ready_q <= 1'b1;
 			if ($test$plusargs("trace") && rstn)
@@ -94,9 +100,16 @@ module tb_core;
 			if (d_wstrb[2]) dmem[d_addr[13:2]][23:16] <= d_wdata[23:16];
 			if (d_wstrb[3]) dmem[d_addr[13:2]][31:24] <= d_wdata[31:24];
 			// magic signature region: word store to 0xFFFF0000
+			// (0xFFFF0001 = Phase 5 flush request: TB pulses the L1
+			// invalidate port with the stored address as inval_addr)
 			if (d_wstrb == 4'b1111 && d_addr[31:16] == 16'hFFFF) begin
-				$display("MAGIC 0x%08x", d_wdata);
-				finish_stats;
+				if (d_addr[15:0] == 16'h0000) begin
+					$display("MAGIC 0x%08x", d_wdata);
+					finish_stats;
+				end else if (d_addr[15:0] == 16'h0001) begin
+					inval_valid <= 1'b1;
+					inval_addr  <= d_wdata;
+				end
 			end
 		end
 	end
@@ -145,6 +158,16 @@ module tb_core;
 		end
 	endtask
 
+	// Phase 5: export a dmem region as RES lines (parsed by the runner)
+	task automatic finish_dump;
+		begin
+			if (has_dump)
+				for (int i = 0; i < dump_words; i++)
+					$display("RES %0d %08x", i,
+						dmem[(dump_addr >> 2) + i]);
+		end
+	endtask
+
 	task automatic finish_stats;
 		real rate;
 		begin
@@ -152,6 +175,7 @@ module tb_core;
 			$display("STAT branches=%0d mispredicts=%0d rate=%0.2f%%",
 				stat_br, stat_mp, rate);
 			finish_fill_check;
+			finish_dump;
 			$finish;
 		end
 	endtask

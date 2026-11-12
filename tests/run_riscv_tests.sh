@@ -45,8 +45,7 @@ for unit in bht btb; do
 	esac
 	iverilog -g2012 -o "$BUILD/tb_$unit.vvp" "$src" "$ROOT/tb/unit/tb_$unit.sv"
 	out=$(vvp "$BUILD/tb_$unit.vvp" 2>&1 || true)
-	if printf '%s\n' "$out" | grep -q '^PASS' && \
-	   ! printf '%s\n' "$out" | grep -q '^FAIL'; then
+	if grep -q '^PASS' <<<"$out" && ! grep -q '^FAIL' <<<"$out"; then
 		echo "PASS tb_$unit ($(printf '%s\n' "$out" | grep '^PASS'))"
 	else
 		echo "FAIL tb_$unit:"
@@ -64,8 +63,7 @@ for pol in lru plru; do
 		"$ROOT/rtl/cache/l1_dcache.sv" \
 		"$ROOT/tb/unit/tb_dcache.sv"
 	out=$(vvp "$BUILD/tb_dcache_$pol.vvp" 2>&1 || true)
-	if printf '%s\n' "$out" | grep -q '^DCACHE TEST PASS' && \
-	   ! printf '%s\n' "$out" | grep -q '^FAIL'; then
+	if grep -q '^DCACHE TEST PASS' <<<"$out" && ! grep -q '^FAIL' <<<"$out"; then
 		echo "PASS tb_dcache ($pol, $(printf '%s\n' "$out" | grep -c '^PASS') checks)"
 	else
 		echo "FAIL tb_dcache ($pol):"
@@ -94,13 +92,19 @@ expect_value() {
 
 # run_hex <name> <hex> <expected>
 run_hex() {
-	local name="$1" hex="$2" expected="$3" out magic
-	out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" 2>&1 || true)
-	# misprediction statistics (Phase 3), shown for branch-heavy tests
-	if printf '%s\n' "$out" | grep -q '^STAT'; then
-		printf '%s\n' "$out" | grep '^STAT' | sed "s/^/  [$name] /"
+	local name="$1" hex="$2" expected="$3" out magic vflags=""
+	# Phase 5: the attack needs a long timeout and dumps the result
+	# region (RES lines) for the signature plot
+	if [[ "$name" == "spectre_v1" ]]; then
+		vflags="+TIMEOUT=2000000 +DUMPADDR=2000 +DUMPWORDS=1799"
 	fi
-	magic=$(printf '%s\n' "$out" | grep -oE 'MAGIC 0x[0-9a-fA-F]+' | \
+	out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" $vflags 2>&1 || true)
+	# misprediction statistics (Phase 3), shown for branch-heavy tests
+	# (herestrings: `printf | grep -q` races SIGPIPE under `pipefail`)
+	if grep -q '^STAT' <<<"$out"; then
+		grep '^STAT' <<<"$out" | sed "s/^/  [$name] /"
+	fi
+	magic=$(grep -oE 'MAGIC 0x[0-9a-fA-F]+' <<<"$out" | \
 		head -1 | awk '{print $2}' || true)
 	if [[ -z "$magic" ]]; then
 		echo "FAIL $name — no MAGIC (tail: $(printf '%s\n' "$out" | tail -2 | tr '\n' ' '))"
@@ -120,12 +124,46 @@ run_hex() {
 		local f_out
 		f_out=$(vvp "$BUILD/tb_core.vvp" +HEX="$hex" \
 			+expectfill=100 +expectnofill=200 2>&1 || true)
-		if printf '%s\n' "$f_out" | grep -q '^EXPECTFILL PASS' && \
-		   printf '%s\n' "$f_out" | grep -q '^EXPECTNOFILL PASS'; then
+		if grep -q '^EXPECTFILL PASS' <<<"$f_out" && \
+		   grep -q '^EXPECTNOFILL PASS' <<<"$f_out"; then
 			echo "  fill side-effect OK (0x100 present, 0x200 absent)"
 		else
 			printf '%s\n' "$f_out" | grep -E '^(EXPECT|MAGIC|STAT)' || true
 			echo "  FAIL $name fill expectation"
+			FAIL=$((FAIL + 1))
+		fi
+	fi
+
+	# Phase 5: RES dump -> CSV -> signature plot + recovery verification
+	if [[ "$name" == "spectre_v1" ]]; then
+		local res_csv="$ROOT/results/spectre/results.csv"
+		mkdir -p "$ROOT/results/spectre"
+		if ! grep -q '^RES ' <<<"$out"; then
+			echo "  FAIL $name — no RES dump lines"
+			FAIL=$((FAIL + 1))
+			return
+		fi
+		grep '^RES ' <<<"$out" | \
+			python3 -c '
+import sys, csv
+rows = {}
+for line in sys.stdin:
+    _, i, v = line.split()
+    rows[int(i)] = int(v, 16)
+w = csv.writer(open(sys.argv[1], "w", newline=""))
+w.writerow(["trial", "secret", "b", "latency"])
+trials = len(rows) // 257
+for t in range(trials):
+    base = t * 257
+    secret = rows[base]
+    for b in range(256):
+        w.writerow([t, secret, b, rows[base + 1 + b]])
+' "$res_csv"
+		if python3 "$ROOT/scripts/plot_spectre.py" --csv "$res_csv" \
+			--out-dir "$ROOT/results/spectre" --verify; then
+			echo "  spectre signature OK (dip at secret, recovery 7/7)"
+		else
+			echo "  FAIL $name spectre recovery"
 			FAIL=$((FAIL + 1))
 		fi
 	fi
