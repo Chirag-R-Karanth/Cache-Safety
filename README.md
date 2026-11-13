@@ -44,8 +44,31 @@ make waves           # same + VCD dump for GTKWave
 ### Full test suite
 
 ```bash
-make test            # cache sim + RTL smoke
+make test            # cache sim + RTL smoke + RISC-V suite (Phases 0-7)
+make test-riscv      # RISC-V suite only (directed + ISS + randomized)
 ```
+
+### Dashboard (Phase 8)
+
+```bash
+streamlit run host/dashboard.py   # live probe data + saved artifacts
+```
+
+### Results summary
+
+| Phase | Deliverable | Key number |
+|---|---|---|
+| 0 | Cache sim + PicoRV32 smoke | builds + 5/5 unit tests |
+| 1 | Cache design-space sweep | `hit-rate-comparison.svg`, `hit-rate-vs-capacity.svg`, `amat-vs-ways.svg` |
+| 3 | BHT/BTB + late-resolving squash | 28/28 pass + predictor unit tests |
+| 4 | L1 dcache + speculative fill side effect | `EXPECTFILL`/`EXPECTNOFILL` PASS |
+| 5 | Spectre v1 PoC | **7/7 secrets recovered** (5 cyc hit vs 12 cyc miss) |
+| 6 | Meltdown PoC | **PASS** (TRAP + `probe[secret]` cached) |
+| 7 | Mitigations | `DISABLE_SPEC_FILL` stops both attacks @ 0% IPC overhead |
+
+See [docs/results.md](docs/results.md) for per-phase charts and
+interpretations; [docs/build-reports/](docs/build-reports/) for the
+per-phase build reports and PR links.
 
 ## Toolchain
 
