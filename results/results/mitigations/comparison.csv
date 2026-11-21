@@ -1,0 +1,9 @@
+attack,mitigation,leak,ipc,ipc_overhead_pct,cycles,instret
+spectre_v1,none,yes,0.515,0.0,,
+spectre_v1,DISABLE_SPEC_FILL,no,0.515,0.0,,
+spectre_v1,SERIALIZE_BRANCH,yes,0.515,0.0,,
+spectre_v1,DISABLE_SPEC_FILL+SERIALIZE_BRANCH,no,0.515,0.0,,
+meltdown,none,yes,0.449,0.0,,
+meltdown,DISABLE_SPEC_FILL,no,0.449,0.0,,
+meltdown,SERIALIZE_BRANCH,no,0.449,0.0,,
+meltdown,DISABLE_SPEC_FILL+SERIALIZE_BRANCH,no,0.449,0.0,,

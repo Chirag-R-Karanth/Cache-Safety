@@ -1,0 +1,13 @@
+metric,value
+accesses,20
+hits,6
+misses,14
+hit_rate,0.3
+miss_rate,0.7
+writes,2
+writebacks,1
+sets,2
+ways,2
+capacity_bytes,256
+line_size_bytes,64
+policy,lru

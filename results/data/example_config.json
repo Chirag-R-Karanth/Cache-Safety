@@ -1,0 +1,18 @@
+{
+  "experiment_id": "C1_assoc_traceA",
+  "workload": "traceA",
+  "seed": 12345,
+  "cache": {
+    "capacity_bytes": 16384,
+    "line_size_bytes": 64,
+    "associativity": 4,
+    "replacement": "LRU",
+    "write_policy": "write_back",
+    "allocation_policy": "write_allocate"
+  },
+  "memory": {
+    "l1_hit_cycles": 1,
+    "l2_hit_cycles": 8,
+    "memory_penalty_cycles": 80
+  }
+}
